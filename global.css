@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* For React Native Web compatibility */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+}

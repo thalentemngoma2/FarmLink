@@ -1,0 +1,17 @@
+{
+  "name": "farmlink-main-server",
+  "version": "1.0.0",
+  "description": "Main server for FarmLink app",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.102.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "multer": "^2.1.1"
+  }
+}

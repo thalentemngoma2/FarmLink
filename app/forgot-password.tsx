@@ -1,0 +1,243 @@
+import { GlassCard } from '@/components/ui/glass-card';
+import { useAuth } from '@/context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  SlideInDown,
+  SlideInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  ZoomIn
+} from 'react-native-reanimated';
+
+export default function ForgotPasswordPage() {
+  const router = useRouter();
+  const { forgotPassword } = useAuth();
+  const [email, setEmail] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  const handleSubmit = async () => {
+    setError('');
+    if (!email) {
+      setError('Please enter your email address');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await forgotPassword(email);
+      setIsSuccess(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send reset link. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBackToLogin = () => {
+    router.push('/login');
+  };
+
+  // Background animation values (same as original)
+  const bgScale1 = useSharedValue(1);
+  const bgX1 = useSharedValue(0);
+  const bgY1 = useSharedValue(0);
+  const bgScale2 = useSharedValue(1.2);
+  const bgX2 = useSharedValue(0);
+  const bgY2 = useSharedValue(0);
+
+  React.useEffect(() => {
+    bgScale1.value = withRepeat(withTiming(1.3, { duration: 20000 }), -1, true);
+    bgX1.value = withRepeat(withTiming(50, { duration: 20000 }), -1, true);
+    bgY1.value = withRepeat(withTiming(-30, { duration: 20000 }), -1, true);
+    bgScale2.value = withRepeat(withTiming(1, { duration: 25000 }), -1, true);
+    bgX2.value = withRepeat(withTiming(-40, { duration: 25000 }), -1, true);
+    bgY2.value = withRepeat(withTiming(40, { duration: 25000 }), -1, true);
+  }, []);
+
+  const bgBlob1Style = useAnimatedStyle(() => ({
+    transform: [{ scale: bgScale1.value }, { translateX: bgX1.value }, { translateY: bgY1.value }],
+  }));
+  const bgBlob2Style = useAnimatedStyle(() => ({
+    transform: [{ scale: bgScale2.value }, { translateX: bgX2.value }, { translateY: bgY2.value }],
+  }));
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
+      <LinearGradient
+        colors={['#f0fdf4', '#ffffff', '#ecfdf5']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <Animated.View style={[styles.blob, styles.blob1, bgBlob1Style]} />
+      <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
+
+      <Animated.View entering={FadeIn} style={styles.backButtonContainer}>
+        <TouchableOpacity onPress={() => router.push('/login')} style={styles.backButton} activeOpacity={0.7}>
+          <Ionicons name="arrow-back" size={20} color="#11181C" />
+        </TouchableOpacity>
+      </Animated.View>
+
+      <View style={styles.content}>
+        <Animated.View entering={SlideInDown.duration(600)} style={styles.logoContainer}>
+          <Animated.View entering={FadeIn.delay(200)} style={styles.logoWrapper}>
+            <LinearGradient colors={['#22c55e', '#16a34a']} style={styles.logoGradient}>
+              <Ionicons name="leaf" size={40} color="white" />
+            </LinearGradient>
+          </Animated.View>
+          <Text style={styles.title}>FarmLink</Text>
+        </Animated.View>
+
+        <Animated.View entering={SlideInUp.duration(600).delay(200)} style={styles.formWrapper}>
+          {!isSuccess ? (
+            <Animated.View entering={FadeIn} exiting={FadeOut}>
+              <GlassCard style={styles.formCard}>
+                <View style={styles.header}>
+                  <Ionicons name="key-outline" size={20} color="#22c55e" />
+                  <Text style={styles.headerTitle}>Reset Password</Text>
+                </View>
+                <Text style={styles.description}>
+                  Enter your email address and we'll send you a link to reset your password.
+                </Text>
+
+                {error !== '' && (
+                  <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.errorMessage}>
+                    <Text style={styles.errorText}>{error}</Text>
+                  </Animated.View>
+                )}
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Email Address</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="mail-outline" size={20} color="#9ca3af" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="you@example.com"
+                      placeholderTextColor="#9ca3af"
+                      value={email}
+                      onChangeText={setEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
+                  onPress={handleSubmit}
+                  disabled={isLoading}
+                  activeOpacity={0.8}
+                >
+                  {isLoading ? (
+                    <Animated.View style={styles.spinner} entering={FadeIn} exiting={FadeOut}>
+                      <Ionicons name="reload" size={20} color="white" />
+                    </Animated.View>
+                  ) : (
+                    <>
+                      <Text style={styles.submitButtonText}>Send Reset Link</Text>
+                      <Ionicons name="arrow-forward" size={20} color="white" />
+                    </>
+                  )}
+                </TouchableOpacity>
+              </GlassCard>
+            </Animated.View>
+          ) : (
+            <Animated.View entering={ZoomIn.springify()} exiting={FadeOut}>
+              <GlassCard style={styles.formCard}>
+                <View style={styles.successContainer}>
+                  <Animated.View entering={ZoomIn.delay(200)} style={styles.successIcon}>
+                    <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
+                  </Animated.View>
+                  <Text style={styles.successTitle}>Check Your Email</Text>
+                  <Text style={styles.successMessage}>
+                    We've sent a password reset link to{' '}
+                    <Text style={styles.successEmail}>{email}</Text>
+                  </Text>
+                  <Text style={styles.resendText}>
+                    Didn't receive the email? Check your spam folder or{' '}
+                    <Text onPress={() => setIsSuccess(false)} style={styles.resendLink}>
+                      try again
+                    </Text>
+                  </Text>
+                  <TouchableOpacity style={styles.backToLoginButton} onPress={handleBackToLogin} activeOpacity={0.8}>
+                    <Ionicons name="arrow-back" size={20} color="white" />
+                    <Text style={styles.backToLoginText}>Back to Login</Text>
+                  </TouchableOpacity>
+                </View>
+              </GlassCard>
+            </Animated.View>
+          )}
+
+          {!isSuccess && (
+            <View style={styles.signupContainer}>
+              <Text style={styles.signupText}>Remember your password? </Text>
+              <TouchableOpacity onPress={() => router.push('/login')}>
+                <Text style={styles.signupLink}>Sign in</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </Animated.View>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  blob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)' },
+  blob1: { width: 200, height: 200, top: -50, left: -50 },
+  blob2: { width: 250, height: 250, bottom: -50, right: -50 },
+  backButtonContainer: { position: 'absolute', top: 16, left: 16, zIndex: 20 },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.5)', alignItems: 'center', justifyContent: 'center' },
+  content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  logoContainer: { alignItems: 'center', marginBottom: 32 },
+  logoWrapper: { width: 80, height: 80, borderRadius: 40, overflow: 'hidden', marginBottom: 16 },
+  logoGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  title: { fontSize: 28, fontWeight: 'bold', color: '#11181C' },
+  formWrapper: { width: '100%', maxWidth: 400 },
+  formCard: { padding: 24 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  headerTitle: { fontSize: 20, fontWeight: '600', color: '#11181C' },
+  description: { fontSize: 14, color: '#687076', marginBottom: 24, lineHeight: 20 },
+  errorMessage: { backgroundColor: 'rgba(239,68,68,0.1)', padding: 12, borderRadius: 12, marginBottom: 16 },
+  errorText: { fontSize: 13, color: '#ef4444', textAlign: 'center' },
+  inputGroup: { marginBottom: 20 },
+  label: { fontSize: 14, fontWeight: '500', color: '#11181C', marginBottom: 6 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)', borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.5)', paddingHorizontal: 12 },
+  inputIcon: { marginRight: 8 },
+  input: { flex: 1, paddingVertical: 12, fontSize: 14, color: '#11181C' },
+  submitButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 12, shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 },
+  submitButtonDisabled: { opacity: 0.7 },
+  submitButtonText: { fontSize: 16, fontWeight: '600', color: 'white' },
+  spinner: { width: 20, height: 20, borderWidth: 2, borderColor: 'white', borderTopColor: 'transparent', borderRadius: 10 },
+  successContainer: { alignItems: 'center' },
+  successIcon: { marginBottom: 16 },
+  successTitle: { fontSize: 20, fontWeight: 'bold', color: '#11181C', marginBottom: 8 },
+  successMessage: { fontSize: 14, color: '#687076', textAlign: 'center', marginBottom: 16 },
+  successEmail: { fontWeight: '600', color: '#22c55e' },
+  resendText: { fontSize: 12, color: '#9ca3af', textAlign: 'center', marginBottom: 24 },
+  resendLink: { color: '#22c55e', fontWeight: '500' },
+  backToLoginButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 12, width: '100%' },
+  backToLoginText: { fontSize: 16, fontWeight: '600', color: 'white' },
+  signupContainer: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
+  signupText: { fontSize: 14, color: '#687076' },
+  signupLink: { fontSize: 14, fontWeight: '600', color: '#22c55e' },
+});
