@@ -48,7 +48,59 @@ import { MobileHeader } from '@/components/mobile-header';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
 import { ChatProvider, useChat } from '@/context/ChatContext';
-import { supabase } from '@/lib/supabase'; // ← Supabase client
+import { supabase } from '@/lib/supabase';
+
+// -----------------------------------------------------------------------------
+// Helper: Format post time (Now / X hours ago / Date)
+// -----------------------------------------------------------------------------
+function formatPostTime(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Now';
+  if (diffHours < 1) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// -----------------------------------------------------------------------------
+// Helper: Process @mentions and create notifications (for comments)
+// -----------------------------------------------------------------------------
+async function processMentions(
+  content: string,
+  actorUserId: string,
+  postId?: string,
+  commentId?: string
+) {
+  const mentionRegex = /@(\w+)/g;
+  let match;
+  const usernames = new Set<string>();
+  while ((match = mentionRegex.exec(content)) !== null) {
+    usernames.add(match[1]);
+  }
+  for (const username of usernames) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('name', username)
+      .single();
+    if (profile && profile.id !== actorUserId) {
+      await supabase.from('notifications').insert({
+        user_id: profile.id,
+        type: 'mention',
+        title: 'You were mentioned',
+        message: `${actorUserId} mentioned you in a ${postId ? 'post' : 'comment'}`,
+        action_url: postId ? `/community/post/${postId}` : `/community/comment/${commentId}`,
+        created_at: new Date(),
+        read: false,
+      });
+    }
+  }
+}
 
 // -----------------------------------------------------------------------------
 // Types
@@ -78,6 +130,7 @@ interface Discussion {
   id: string;
   avatar: string;
   author: string;
+  authorId: string;
   timeAgo: string;
   trending: boolean;
   title: string;
@@ -89,6 +142,7 @@ interface Discussion {
   videoUri?: string;
   mediaType?: 'image' | 'video';
   likedByUser?: boolean;
+  isOfficial: boolean;
   comments: Comment[];
 }
 
@@ -101,24 +155,25 @@ const BOTTOM_NAV_HEIGHT = 70;
 
 // -----------------------------------------------------------------------------
 // Helper: map raw Supabase row → Discussion shape
-// Adjust field names to match your actual Supabase table columns.
 // -----------------------------------------------------------------------------
 function mapPost(row: any, currentUserId?: string): Discussion {
   return {
     id: String(row.id),
-    avatar: row.avatar ?? '🌱',
-    author: row.author ?? row.username ?? 'Unknown',
-    timeAgo: row.time_ago ?? row.created_at ?? '',
-    trending: row.trending ?? false,
+    avatar: row.profiles?.avatar ?? '🌱',
+    author: row.profiles?.name ?? 'Anonymous',
+    authorId: row.user_id,
+    timeAgo: formatPostTime(row.created_at),
+    trending: false,
     title: row.title ?? '',
-    preview: row.preview ?? row.content ?? '',
+    preview: row.preview ?? '',
     category: row.category ?? 'General',
-    replies: row.replies_count ?? row.replies ?? 0,
-    likes: row.likes_count ?? row.likes ?? 0,
-    imageUri: row.image_uri ?? row.image_url ?? undefined,
-    videoUri: row.video_uri ?? row.video_url ?? undefined,
+    replies: row.comments_count ?? 0,
+    likes: row.likes_count ?? 0,
+    imageUri: row.media_urls?.[0] ?? undefined,
+    videoUri: row.media_urls?.[0] ?? undefined,
     mediaType: row.media_type ?? undefined,
     likedByUser: row.liked_by_user ?? false,
+    isOfficial: row.is_official ?? false,
     comments: [],
   };
 }
@@ -126,12 +181,12 @@ function mapPost(row: any, currentUserId?: string): Discussion {
 function mapComment(row: any): Comment {
   return {
     id: String(row.id),
-    username: row.username ?? row.author ?? 'Unknown',
-    avatar: row.avatar ?? '🌱',
-    comment: row.comment ?? row.content ?? '',
-    postedDate: row.posted_date ?? row.created_at ?? '',
-    likes: row.likes ?? 0,
-    likedByUser: row.liked_by_user ?? false,
+    username: row.profiles?.name ?? 'Anonymous',
+    avatar: row.profiles?.avatar ?? '🌱',
+    comment: row.content,
+    postedDate: formatPostTime(row.created_at),
+    likes: row.likes_count ?? 0,
+    likedByUser: false,
     replies: (row.replies ?? []).map((r: any) => mapReply(r)),
   };
 }
@@ -139,17 +194,17 @@ function mapComment(row: any): Comment {
 function mapReply(row: any): Reply {
   return {
     id: String(row.id),
-    username: row.username ?? row.author ?? 'Unknown',
-    avatar: row.avatar ?? '🌱',
-    comment: row.comment ?? row.content ?? '',
-    postedDate: row.posted_date ?? row.created_at ?? '',
-    likes: row.likes ?? 0,
-    likedByUser: row.liked_by_user ?? false,
+    username: row.profiles?.name ?? 'Anonymous',
+    avatar: row.profiles?.avatar ?? '🌱',
+    comment: row.content,
+    postedDate: formatPostTime(row.created_at),
+    likes: row.likes_count ?? 0,
+    likedByUser: false,
   };
 }
 
 // -----------------------------------------------------------------------------
-// TikTok Bottom Sheet
+// TikTok Bottom Sheet (unchanged)
 // -----------------------------------------------------------------------------
 export interface BottomSheetRef {
   expand: () => void;
@@ -242,7 +297,7 @@ const TikTokBottomSheet = forwardRef<BottomSheetRef, TikTokBottomSheetProps>(
 );
 
 // -----------------------------------------------------------------------------
-// Comment Item Component
+// Comment Item Component (unchanged)
 // -----------------------------------------------------------------------------
 interface CommentItemProps {
   comment: Comment;
@@ -304,7 +359,7 @@ const CommentItem: React.FC<CommentItemProps> = ({ comment, onLike, onReply }) =
 };
 
 // -----------------------------------------------------------------------------
-// Main Community Page Content — all API calls use Supabase
+// Main Community Page Content
 // -----------------------------------------------------------------------------
 const CommunityPageContent = () => {
   const { user } = useAuth();
@@ -328,28 +383,49 @@ const CommunityPageContent = () => {
   const { createChat } = useChat();
 
   // ---------------------------------------------------------------------------
-  // SUPABASE: Fetch posts
-  // Table assumed: "posts"
-  // Adjust column names to match your actual schema.
+  // Render @mentions as clickable links
+  // ---------------------------------------------------------------------------
+  const renderMentions = (text: string) => {
+    const parts = text.split(/(@\w+)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('@')) {
+        const username = part.slice(1);
+        return (
+          <Text
+            key={i}
+            style={styles.mentionLink}
+            onPress={() => router.push({ pathname: '/profile/[username]', params: { username } } as any)}
+          >
+            {part}
+          </Text>
+        );
+      }
+      return <Text key={i}>{part}</Text>;
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Fetch posts (left join to profiles)
   // ---------------------------------------------------------------------------
   const fetchPosts = async () => {
     try {
       setLoading(true);
-
       let query = supabase
         .from('posts')
-        .select('*')
+        .select(`
+          *,
+          profiles (
+            name,
+            avatar
+          )
+        `)
         .order('created_at', { ascending: false });
-
-      // Filter by category unless "All" is selected
       if (activeCategory !== 'All') {
         query = query.eq('category', activeCategory);
       }
-
       const { data, error } = await query;
-
       if (error) throw error;
-
+      console.log('Fetched posts:', data?.length); // debug
       setPosts((data ?? []).map((row) => mapPost(row, user?.id)));
     } catch (err: any) {
       console.error('Failed to fetch posts', err);
@@ -360,10 +436,7 @@ const CommunityPageContent = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // SUPABASE: Fetch comments for a post
-  // Table assumed: "comments"  with a "post_id" foreign key
-  // Replies assumed: "replies" table with "comment_id" foreign key,
-  // OR nested as a column. Adjust as needed.
+  // Fetch comments (left join to profiles)
   // ---------------------------------------------------------------------------
   const fetchComments = async (postId: string): Promise<Comment[]> => {
     try {
@@ -371,13 +444,22 @@ const CommunityPageContent = () => {
         .from('comments')
         .select(`
           *,
-          replies (*)
+          profiles (
+            name,
+            avatar
+          ),
+          replies:comments!parent_comment_id (
+            *,
+            profiles (
+              name,
+              avatar
+            )
+          )
         `)
         .eq('post_id', postId)
+        .is('parent_comment_id', null)
         .order('created_at', { ascending: true });
-
       if (error) throw error;
-
       return (data ?? []).map((row) => mapComment(row));
     } catch (err) {
       console.error('Failed to fetch comments', err);
@@ -400,8 +482,7 @@ const CommunityPageContent = () => {
   const selectedPost = useMemo(() => posts.find(p => p.id === selectedPostId), [posts, selectedPostId]);
 
   // ---------------------------------------------------------------------------
-  // SUPABASE: Like a post
-  // Table assumed: "post_likes"  with columns: post_id, user_id
+  // Like a post
   // ---------------------------------------------------------------------------
   const handleLike = async (id: string) => {
     if (!user) {
@@ -411,35 +492,20 @@ const CommunityPageContent = () => {
       ]);
       return;
     }
-
     const post = posts.find(p => p.id === id);
     if (!post) return;
-
-    // Optimistic UI update
     setPosts(prev => prev.map(p =>
       p.id === id
         ? { ...p, likes: p.likedByUser ? p.likes - 1 : p.likes + 1, likedByUser: !p.likedByUser }
         : p
     ));
-
     try {
       if (post.likedByUser) {
-        // Unlike: remove the row
-        const { error } = await supabase
-          .from('post_likes')
-          .delete()
-          .eq('post_id', id)
-          .eq('user_id', user.id);
-        if (error) throw error;
+        await supabase.from('post_likes').delete().eq('post_id', id).eq('user_id', user.id);
       } else {
-        // Like: insert a row
-        const { error } = await supabase
-          .from('post_likes')
-          .insert({ post_id: id, user_id: user.id });
-        if (error) throw error;
+        await supabase.from('post_likes').insert({ post_id: id, user_id: user.id });
       }
     } catch (err) {
-      // Revert optimistic update on failure
       setPosts(prev => prev.map(p =>
         p.id === id
           ? { ...p, likes: post.likes, likedByUser: post.likedByUser }
@@ -450,7 +516,7 @@ const CommunityPageContent = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Open comment sheet and load comments
+  // Open comment sheet
   // ---------------------------------------------------------------------------
   const handleComment = async (postId: string) => {
     if (!user) {
@@ -476,8 +542,7 @@ const CommunityPageContent = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // SUPABASE: Submit comment or reply
-  // Table assumed: "comments" with columns: post_id, user_id, content, parent_comment_id
+  // Submit comment (with mention processing)
   // ---------------------------------------------------------------------------
   const submitComment = async () => {
     if (!commentText.trim() || !selectedPostId) return;
@@ -485,27 +550,25 @@ const CommunityPageContent = () => {
       Alert.alert('Login Required', 'Please log in to comment');
       return;
     }
-
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('comments')
         .insert({
           post_id: selectedPostId,
           user_id: user.id,
           content: commentText.trim(),
           parent_comment_id: replyingTo?.commentId ?? null,
-        });
-
+        })
+        .select()
+        .single();
       if (error) throw error;
-
-      // Refresh comments after posting
+      await processMentions(commentText.trim(), user.id, selectedPostId, data.id);
       const newComments = await fetchComments(selectedPostId);
       setPosts(prev => prev.map(p =>
         p.id === selectedPostId
           ? { ...p, comments: newComments, replies: newComments.length }
           : p
       ));
-
       setCommentText('');
       setReplyingTo(null);
       Alert.alert('Success', replyingTo ? 'Reply posted!' : 'Comment posted!');
@@ -522,6 +585,9 @@ const CommunityPageContent = () => {
     Keyboard.dismiss();
   };
 
+  // ---------------------------------------------------------------------------
+  // Video auto‑play
+  // ---------------------------------------------------------------------------
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     const visibleVideo = viewableItems.find((item: any) => item.item.mediaType === 'video' && item.item.videoUri);
     if (visibleVideo) {
@@ -583,11 +649,19 @@ const CommunityPageContent = () => {
         </View>
         <TouchableOpacity activeOpacity={0.9} onPress={() => console.log('Open discussion', item.id)} style={styles.cardContent}>
           <View style={styles.cardTopSection}>
-            <TouchableOpacity onPress={() => openChatWithUser(item.author, item.author, item.avatar)}>
+            <TouchableOpacity onPress={() => openChatWithUser(item.authorId, item.author, item.avatar)}>
               <View style={styles.authorRow}>
                 <View style={styles.avatar}><Text style={styles.avatarText}>{item.avatar}</Text></View>
                 <View>
-                  <Text style={styles.authorName}>{item.author}</Text>
+                  <View style={styles.authorNameRow}>
+                    <Text style={styles.authorName}>{item.author}</Text>
+                    {item.isOfficial && (
+                      <View style={styles.officialBadge}>
+                        <Ionicons name="checkmark-circle" size={12} color="#fff" />
+                        <Text style={styles.officialText}>Official</Text>
+                      </View>
+                    )}
+                  </View>
                   <View style={styles.timeRow}>
                     <Ionicons name="time-outline" size={12} color="#ddd" />
                     <Text style={styles.timeText}>{item.timeAgo}</Text>
@@ -597,7 +671,9 @@ const CommunityPageContent = () => {
             </TouchableOpacity>
           </View>
           <View style={styles.cardBottomSection}>
-            <Text style={styles.preview} numberOfLines={3}>{item.preview}</Text>
+            <Text style={styles.preview} numberOfLines={3}>
+              {renderMentions(item.preview)}
+            </Text>
             <View style={styles.footer}>
               <View style={styles.categoryBadge}><Text style={styles.categoryText}>{item.category}</Text></View>
               <View style={styles.statsRow}>
@@ -775,7 +851,7 @@ export default function CommunityPage() {
 }
 
 // -----------------------------------------------------------------------------
-// Styles
+// Styles (unchanged)
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
@@ -804,10 +880,14 @@ const styles = StyleSheet.create({
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(34,197,94,0.8)', alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 14, fontWeight: 'bold', color: '#fff' },
+  authorNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   authorName: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  officialBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#22c55e', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 12, gap: 2 },
+  officialText: { fontSize: 10, fontWeight: '600', color: 'white' },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   timeText: { fontSize: 11, color: '#ddd' },
   preview: { fontSize: 14, color: '#e5e7eb', lineHeight: 20 },
+  mentionLink: { color: '#22c55e', fontWeight: '500' },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' },
   categoryBadge: { backgroundColor: 'rgba(34,197,94,0.9)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   categoryText: { fontSize: 12, fontWeight: '600', color: '#fff' },

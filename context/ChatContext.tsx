@@ -2,7 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import React, { createContext, useCallback, useContext, useEffect, useReducer } from 'react';
 
+// -----------------------------------------------------------------------------
 // Types
+// -----------------------------------------------------------------------------
 export interface Message {
   id: string;
   text: string;
@@ -28,7 +30,31 @@ export interface Chat {
   };
   lastMessage?: Message;
   unreadCount: number;
+  // Convenience getter for the simple participant object (used by ChatList)
+  get participant(): { id: string; name: string; avatar: string };
 }
+
+// Add the getter to the Chat type (we'll implement it when creating chats)
+const createChatObject = (
+  id: string,
+  participants: string[],
+  otherUser: Chat['otherUser'],
+  unreadCount: number = 0,
+  lastMessage?: Message
+): Chat => ({
+  id,
+  participants,
+  otherUser,
+  unreadCount,
+  lastMessage,
+  get participant() {
+    return {
+      id: this.otherUser.id,
+      name: this.otherUser.name,
+      avatar: this.otherUser.avatar,
+    };
+  },
+});
 
 interface ChatState {
   currentUserId: string;
@@ -50,6 +76,9 @@ type ChatAction =
   | { type: 'MARK_CHAT_READ'; payload: { chatId: string } }
   | { type: 'UPDATE_ONLINE_STATUS'; payload: { userId: string; online: boolean; lastSeen?: number } };
 
+// -----------------------------------------------------------------------------
+// Reducer
+// -----------------------------------------------------------------------------
 const chatReducer = (state: ChatState, action: ChatAction): ChatState => {
   switch (action.type) {
     case 'SET_CURRENT_USER':
@@ -124,6 +153,9 @@ const chatReducer = (state: ChatState, action: ChatAction): ChatState => {
   }
 };
 
+// -----------------------------------------------------------------------------
+// Context Value Interface
+// -----------------------------------------------------------------------------
 interface ChatContextValue extends ChatState {
   sendMessage: (chatId: string, text: string, mediaUri?: string) => void;
   sendTyping: (chatId: string, isTyping: boolean) => void;
@@ -136,9 +168,11 @@ interface ChatContextValue extends ChatState {
 
 const ChatContext = createContext<ChatContextValue | undefined>(undefined);
 
-// Mock current user (replace with actual auth)
+// -----------------------------------------------------------------------------
+// Provider
+// -----------------------------------------------------------------------------
+// In a real app, replace with the actual authenticated user ID
 const CURRENT_USER_ID = 'currentUser';
-const CURRENT_USER_NAME = 'You';
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(chatReducer, {
@@ -172,7 +206,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     AsyncStorage.setItem('messages', JSON.stringify(state.messages));
   }, [state.chats, state.messages]);
 
-  // Mock real-time: simulate other user reading messages after 2 sec
+  // Simulate other user reading messages after 2 seconds
   useEffect(() => {
     const intervals: ReturnType<typeof setTimeout>[] = [];
     Object.entries(state.messages).forEach(([chatId, msgs]) => {
@@ -187,7 +221,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => intervals.forEach(clearTimeout);
   }, [state.messages]);
 
-  // Mock online status changes
+  // Simulate random online status changes
   useEffect(() => {
     const interval = setInterval(() => {
       state.chats.forEach(chat => {
@@ -203,11 +237,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const sendMessage = useCallback((chatId: string, text: string, mediaUri?: string) => {
     if (!text.trim() && !mediaUri) return;
+    const chat = state.chats.find(c => c.id === chatId);
+    if (!chat) return;
     const newMessage: Message = {
       id: Date.now().toString(),
       text: text.trim(),
       senderId: state.currentUserId,
-      receiverId: state.chats.find(c => c.id === chatId)?.otherUser.id || '',
+      receiverId: chat.otherUser.id,
       timestamp: Date.now(),
       status: 'sent',
       mediaUri,
@@ -226,7 +262,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const markChatRead = useCallback((chatId: string) => {
     dispatch({ type: 'MARK_CHAT_READ', payload: { chatId } });
-    // Mark all messages from other user as read
     const chatMessages = state.messages[chatId] || [];
     chatMessages.forEach(msg => {
       if (msg.senderId !== state.currentUserId && msg.status !== 'read') {
@@ -246,12 +281,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const createChat = useCallback((userId: string, name: string, avatar: string) => {
     const existingChat = state.chats.find(c => c.otherUser.id === userId);
     if (existingChat) return existingChat.id;
-    const newChat: Chat = {
-      id: `chat_${Date.now()}`,
-      participants: [state.currentUserId, userId],
-      otherUser: { id: userId, name, avatar, online: false, lastSeen: Date.now() },
-      unreadCount: 0,
-    };
+    const newChat = createChatObject(
+      `chat_${Date.now()}`,
+      [state.currentUserId, userId],
+      { id: userId, name, avatar, online: false, lastSeen: Date.now() },
+      0
+    );
     dispatch({ type: 'ADD_CHAT', payload: newChat });
     return newChat.id;
   }, [state.chats, state.currentUserId]);
@@ -271,20 +306,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   };
 
-  return (
-    <ChatContext.Provider value={{
-      ...state,
-      sendMessage,
-      sendTyping,
-      markChatRead,
-      deleteMessage,
-      editMessage,
-      createChat,
-      pickImage,
-    }}>
-      {children}
-    </ChatContext.Provider>
-  );
+  const value: ChatContextValue = {
+    ...state,
+    sendMessage,
+    sendTyping,
+    markChatRead,
+    deleteMessage,
+    editMessage,
+    createChat,
+    pickImage,
+  };
+
+  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 };
 
 export const useChat = () => {
