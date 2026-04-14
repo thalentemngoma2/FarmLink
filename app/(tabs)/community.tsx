@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 import { ResizeMode, Video } from 'expo-av';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -48,7 +49,6 @@ import { MobileHeader } from '@/components/mobile-header';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
 import { ChatProvider, useChat } from '@/context/ChatContext';
-import { supabase } from '@/lib/supabase'; // ← Supabase client
 
 // -----------------------------------------------------------------------------
 // Types
@@ -99,57 +99,11 @@ const SNAP_PARTIAL = SCREEN_HEIGHT * 0.4;
 const SNAP_EXPANDED = SCREEN_HEIGHT * 0.05;
 const BOTTOM_NAV_HEIGHT = 70;
 
-// -----------------------------------------------------------------------------
-// Helper: map raw Supabase row → Discussion shape
-// Adjust field names to match your actual Supabase table columns.
-// -----------------------------------------------------------------------------
-function mapPost(row: any, currentUserId?: string): Discussion {
-  return {
-    id: String(row.id),
-    avatar: row.avatar ?? '🌱',
-    author: row.author ?? row.username ?? 'Unknown',
-    timeAgo: row.time_ago ?? row.created_at ?? '',
-    trending: row.trending ?? false,
-    title: row.title ?? '',
-    preview: row.preview ?? row.content ?? '',
-    category: row.category ?? 'General',
-    replies: row.replies_count ?? row.replies ?? 0,
-    likes: row.likes_count ?? row.likes ?? 0,
-    imageUri: row.image_uri ?? row.image_url ?? undefined,
-    videoUri: row.video_uri ?? row.video_url ?? undefined,
-    mediaType: row.media_type ?? undefined,
-    likedByUser: row.liked_by_user ?? false,
-    comments: [],
-  };
-}
-
-function mapComment(row: any): Comment {
-  return {
-    id: String(row.id),
-    username: row.username ?? row.author ?? 'Unknown',
-    avatar: row.avatar ?? '🌱',
-    comment: row.comment ?? row.content ?? '',
-    postedDate: row.posted_date ?? row.created_at ?? '',
-    likes: row.likes ?? 0,
-    likedByUser: row.liked_by_user ?? false,
-    replies: (row.replies ?? []).map((r: any) => mapReply(r)),
-  };
-}
-
-function mapReply(row: any): Reply {
-  return {
-    id: String(row.id),
-    username: row.username ?? row.author ?? 'Unknown',
-    avatar: row.avatar ?? '🌱',
-    comment: row.comment ?? row.content ?? '',
-    postedDate: row.posted_date ?? row.created_at ?? '',
-    likes: row.likes ?? 0,
-    likedByUser: row.liked_by_user ?? false,
-  };
-}
+// API base URL – replace with your community server IP
+const COMMUNITY_API = 'http://192.168.8.143:3000';
 
 // -----------------------------------------------------------------------------
-// TikTok Bottom Sheet
+// TikTok Bottom Sheet (unchanged)
 // -----------------------------------------------------------------------------
 export interface BottomSheetRef {
   expand: () => void;
@@ -242,7 +196,7 @@ const TikTokBottomSheet = forwardRef<BottomSheetRef, TikTokBottomSheetProps>(
 );
 
 // -----------------------------------------------------------------------------
-// Comment Item Component
+// Comment Item Component (unchanged)
 // -----------------------------------------------------------------------------
 interface CommentItemProps {
   comment: Comment;
@@ -304,7 +258,7 @@ const CommentItem: React.FC<CommentItemProps> = ({ comment, onLike, onReply }) =
 };
 
 // -----------------------------------------------------------------------------
-// Main Community Page Content — all API calls use Supabase
+// Main Community Page Content (with API integration)
 // -----------------------------------------------------------------------------
 const CommunityPageContent = () => {
   const { user } = useAuth();
@@ -323,35 +277,18 @@ const CommunityPageContent = () => {
   const commentInputRef = useRef<TextInput>(null);
   const bottomSheetRef = useRef<BottomSheetRef>(null);
 
+  // Chat state
   const [showChatList, setShowChatList] = useState(false);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const { createChat } = useChat();
 
-  // ---------------------------------------------------------------------------
-  // SUPABASE: Fetch posts
-  // Table assumed: "posts"
-  // Adjust column names to match your actual schema.
-  // ---------------------------------------------------------------------------
+  // Fetch posts from server
   const fetchPosts = async () => {
     try {
       setLoading(true);
-
-      let query = supabase
-        .from('posts')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      // Filter by category unless "All" is selected
-      if (activeCategory !== 'All') {
-        query = query.eq('category', activeCategory);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      setPosts((data ?? []).map((row) => mapPost(row, user?.id)));
-    } catch (err: any) {
+      const res = await axios.get(`${COMMUNITY_API}/posts?category=${activeCategory}`);
+      setPosts(res.data);
+    } catch (err) {
       console.error('Failed to fetch posts', err);
       Alert.alert('Error', 'Could not load community posts');
     } finally {
@@ -359,26 +296,11 @@ const CommunityPageContent = () => {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // SUPABASE: Fetch comments for a post
-  // Table assumed: "comments"  with a "post_id" foreign key
-  // Replies assumed: "replies" table with "comment_id" foreign key,
-  // OR nested as a column. Adjust as needed.
-  // ---------------------------------------------------------------------------
-  const fetchComments = async (postId: string): Promise<Comment[]> => {
+  // Fetch comments for a specific post
+  const fetchComments = async (postId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('comments')
-        .select(`
-          *,
-          replies (*)
-        `)
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-
-      return (data ?? []).map((row) => mapComment(row));
+      const res = await axios.get(`${COMMUNITY_API}/posts/${postId}/comments`);
+      return res.data;
     } catch (err) {
       console.error('Failed to fetch comments', err);
       return [];
@@ -399,10 +321,6 @@ const CommunityPageContent = () => {
 
   const selectedPost = useMemo(() => posts.find(p => p.id === selectedPostId), [posts, selectedPostId]);
 
-  // ---------------------------------------------------------------------------
-  // SUPABASE: Like a post
-  // Table assumed: "post_likes"  with columns: post_id, user_id
-  // ---------------------------------------------------------------------------
   const handleLike = async (id: string) => {
     if (!user) {
       Alert.alert('Login Required', 'Please log in to like posts', [
@@ -411,47 +329,19 @@ const CommunityPageContent = () => {
       ]);
       return;
     }
-
-    const post = posts.find(p => p.id === id);
-    if (!post) return;
-
-    // Optimistic UI update
-    setPosts(prev => prev.map(p =>
-      p.id === id
-        ? { ...p, likes: p.likedByUser ? p.likes - 1 : p.likes + 1, likedByUser: !p.likedByUser }
-        : p
-    ));
-
     try {
-      if (post.likedByUser) {
-        // Unlike: remove the row
-        const { error } = await supabase
-          .from('post_likes')
-          .delete()
-          .eq('post_id', id)
-          .eq('user_id', user.id);
-        if (error) throw error;
-      } else {
-        // Like: insert a row
-        const { error } = await supabase
-          .from('post_likes')
-          .insert({ post_id: id, user_id: user.id });
-        if (error) throw error;
-      }
-    } catch (err) {
-      // Revert optimistic update on failure
+      await axios.post(`${COMMUNITY_API}/posts/${id}/like`, { userId: user.id });
+      // Optimistic update
       setPosts(prev => prev.map(p =>
         p.id === id
-          ? { ...p, likes: post.likes, likedByUser: post.likedByUser }
+          ? { ...p, likes: p.likedByUser ? p.likes - 1 : p.likes + 1, likedByUser: !p.likedByUser }
           : p
       ));
+    } catch (err) {
       Alert.alert('Error', 'Failed to like post');
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Open comment sheet and load comments
-  // ---------------------------------------------------------------------------
   const handleComment = async (postId: string) => {
     if (!user) {
       Alert.alert('Login Required', 'Please log in to comment', [
@@ -463,6 +353,7 @@ const CommunityPageContent = () => {
     setSelectedPostId(postId);
     setReplyingTo(null);
     setCommentText('');
+    // Load comments
     const comments = await fetchComments(postId);
     setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments } : p));
     setCommentSheetVisible(true);
@@ -475,42 +366,27 @@ const CommunityPageContent = () => {
     setTimeout(() => commentInputRef.current?.focus(), 100);
   };
 
-  // ---------------------------------------------------------------------------
-  // SUPABASE: Submit comment or reply
-  // Table assumed: "comments" with columns: post_id, user_id, content, parent_comment_id
-  // ---------------------------------------------------------------------------
   const submitComment = async () => {
     if (!commentText.trim() || !selectedPostId) return;
     if (!user) {
       Alert.alert('Login Required', 'Please log in to comment');
       return;
     }
-
     try {
-      const { error } = await supabase
-        .from('comments')
-        .insert({
-          post_id: selectedPostId,
-          user_id: user.id,
-          content: commentText.trim(),
-          parent_comment_id: replyingTo?.commentId ?? null,
-        });
-
-      if (error) throw error;
-
-      // Refresh comments after posting
+      const payload = {
+        postId: selectedPostId,
+        userId: user.id,
+        content: commentText,
+        parentCommentId: replyingTo?.commentId || null,
+      };
+      await axios.post(`${COMMUNITY_API}/comments`, payload);
+      // Refresh comments
       const newComments = await fetchComments(selectedPostId);
-      setPosts(prev => prev.map(p =>
-        p.id === selectedPostId
-          ? { ...p, comments: newComments, replies: newComments.length }
-          : p
-      ));
-
+      setPosts(prev => prev.map(p => p.id === selectedPostId ? { ...p, comments: newComments, replies: newComments.length } : p));
       setCommentText('');
       setReplyingTo(null);
       Alert.alert('Success', replyingTo ? 'Reply posted!' : 'Comment posted!');
     } catch (err) {
-      console.error('Failed to post comment', err);
       Alert.alert('Error', 'Failed to post comment');
     }
   };
@@ -764,7 +640,7 @@ const CommunityPageContent = () => {
 };
 
 // -----------------------------------------------------------------------------
-// Export
+// Export wrapped with ChatProvider and AuthProvider
 // -----------------------------------------------------------------------------
 export default function CommunityPage() {
   return (
@@ -775,7 +651,7 @@ export default function CommunityPage() {
 }
 
 // -----------------------------------------------------------------------------
-// Styles
+// Styles (responsive improvements added)
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },

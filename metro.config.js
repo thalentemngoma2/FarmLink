@@ -1,11 +1,12 @@
-// metro.config.js
-const { getDefaultConfig } = require('expo/metro-config');
+import { getDefaultConfig } from 'expo/metro-config.js';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const config = getDefaultConfig(__dirname);
 
-// Ignore the entire 'server' folder
-config.resolver.blockList = [
-  /server\/.*/,
-];
+config.resolver.blockList = [/server\/.*/];
 
-module.exports = config;
+export default config;

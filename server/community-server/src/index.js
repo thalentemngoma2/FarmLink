@@ -5,14 +5,14 @@ const { createClient } = require('@supabase/supabase-js');
 const axios = require('axios');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3006;
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Notification server URL (to send notifications)
-const NOTIFICATION_SERVER = process.env.NOTIFICATION_SERVER || 'http://localhost:3000';
+const NOTIFICATION_SERVER = process.env.NOTIFICATION_SERVER || 'http://localhost:3005';
 
 app.use(cors());
 app.use(express.json());

@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -27,27 +27,13 @@ import Animated, {
 export default function VerifyOTPPage() {
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
-  const { verifyOTP, resendVerification } = useAuth();
+  const { verifyOTP } = useAuth();
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [resendSuccess, setResendSuccess] = useState('');
-  const [resendCooldown, setResendCooldown] = useState(0); // seconds
-
-  // Countdown timer for resend button
-  useEffect(() => {
-    let interval: number;
-    if (resendCooldown > 0) {
-      interval = setInterval(() => {
-        setResendCooldown(prev => prev - 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [resendCooldown]);
 
   const handleVerify = async () => {
     setError('');
-    setResendSuccess('');
     if (!otp || otp.length < 6) {
       setError('Please enter the 6-digit verification code');
       return;
@@ -68,31 +54,7 @@ export default function VerifyOTPPage() {
     }
   };
 
-  const handleResend = async () => {
-    if (!params.email) {
-      setError('Email address is missing. Please go back and try again.');
-      return;
-    }
-    if (resendCooldown > 0) {
-      setError(`Please wait ${resendCooldown} seconds before resending.`);
-      return;
-    }
-
-    setError('');
-    setResendSuccess('');
-    setIsLoading(true);
-    try {
-      await resendVerification(params.email);
-      setResendSuccess('Verification email resent! Check your inbox.');
-      setResendCooldown(60); // start 60-second cooldown
-    } catch (err: any) {
-      setError(err.message || 'Failed to resend verification email.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Background animations (same as before)
+  // Background animations
   const bgScale1 = useSharedValue(1);
   const bgX1 = useSharedValue(0);
   const bgY1 = useSharedValue(0);
@@ -161,12 +123,6 @@ export default function VerifyOTPPage() {
               </Animated.View>
             )}
 
-            {resendSuccess !== '' && (
-              <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.successMessage}>
-                <Text style={styles.successText}>{resendSuccess}</Text>
-              </Animated.View>
-            )}
-
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Enter 6-digit code</Text>
               <View style={styles.inputWrapper}>
@@ -203,16 +159,8 @@ export default function VerifyOTPPage() {
 
             <View style={styles.resendContainer}>
               <Text style={styles.resendText}>Didn't receive the code? </Text>
-              <TouchableOpacity 
-                onPress={handleResend} 
-                disabled={isLoading || resendCooldown > 0}
-              >
-                <Text style={[
-                  styles.resendLink, 
-                  (resendCooldown > 0) && styles.resendLinkDisabled
-                ]}>
-                  {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : 'Resend'}
-                </Text>
+              <TouchableOpacity onPress={() => { /* resend logic can be added later */ }}>
+                <Text style={styles.resendLink}>Resend</Text>
               </TouchableOpacity>
             </View>
           </GlassCard>
@@ -249,8 +197,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, fontWeight: '600', color: '#11181C' },
   errorMessage: { backgroundColor: 'rgba(239,68,68,0.1)', padding: 12, borderRadius: 12, marginBottom: 16 },
   errorText: { fontSize: 13, color: '#ef4444', textAlign: 'center' },
-  successMessage: { backgroundColor: 'rgba(34,197,94,0.1)', padding: 12, borderRadius: 12, marginBottom: 16 },
-  successText: { fontSize: 13, color: '#22c55e', textAlign: 'center' },
   inputGroup: { marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '500', color: '#11181C', marginBottom: 6 },
   inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)', borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.5)', paddingHorizontal: 12 },
@@ -263,7 +209,6 @@ const styles = StyleSheet.create({
   resendContainer: { flexDirection: 'row', justifyContent: 'center', marginTop: 20 },
   resendText: { fontSize: 13, color: '#687076' },
   resendLink: { fontSize: 13, fontWeight: '600', color: '#22c55e' },
-  resendLinkDisabled: { color: '#9ca3af' },
   loginContainer: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
   loginText: { fontSize: 14, color: '#687076' },
   loginLink: { fontSize: 14, fontWeight: '600', color: '#22c55e' },

@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -32,10 +33,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomNav } from '@/components/bottom-nav';
 import { MobileHeader } from '@/components/mobile-header';
 import { GlassCard } from '@/components/ui/glass-card';
-import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
 
-// Categories data
+// Categories data (same as before)
 const categories = [
   { id: 'crops', label: 'Crops', color: '#22c55e' },
   { id: 'pests', label: 'Pests & Disease', color: '#ef4444' },
@@ -51,8 +50,10 @@ interface MediaItem {
   fileName?: string;
 }
 
+// API endpoint – replace with your server IP/port
+const POSTING_API = 'http://192.168.8.143:3000';
+
 export default function AskPage() {
-  const { user } = useAuth();
   const [description, setDescription] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [location, setLocation] = useState('');
@@ -60,13 +61,13 @@ export default function AskPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
 
-  // Validate form
-  const isValid = description.trim().length >= 20 && selectedCategory !== null;
+  // For demo – replace with actual authenticated user ID
+  const currentUserId = 'user_123';
 
   // Animated background (unchanged)
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
-  useEffect(() => {
+  React.useEffect(() => {
     bgScale.value = withRepeat(withTiming(1.2, { duration: 8000 }), -1, true);
     bgOpacity.value = withRepeat(withTiming(0.5, { duration: 10000 }), -1, true);
   }, []);
@@ -76,84 +77,9 @@ export default function AskPage() {
   }));
   const { width, height } = Dimensions.get('window');
 
-  // ---------------------------------------------------------------------------
-  // Helper: Upload a file to Supabase Storage
-  // ---------------------------------------------------------------------------
-  const uploadFile = async (uri: string, type: 'image' | 'video', userId: string): Promise<string> => {
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    const fileExt = uri.split('.').pop() || (type === 'image' ? 'jpg' : 'mp4');
-    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-    const filePath = `posts/${userId}/${fileName}`;
+  // Validation: description >= 20 chars, category selected
+  const isValid = description.trim().length >= 20 && selectedCategory !== null;
 
-    const { error } = await supabase.storage
-      .from('farmlink')
-      .upload(filePath, blob, { contentType: type === 'image' ? 'image/jpeg' : 'video/mp4' });
-    if (error) throw error;
-
-    const { data: publicUrl } = supabase.storage.from('farmlink').getPublicUrl(filePath);
-    return publicUrl.publicUrl;
-  };
-
-  // ---------------------------------------------------------------------------
-  // Submit post
-  // ---------------------------------------------------------------------------
-  const handleSubmit = async () => {
-    if (!isValid) return;
-    if (!user) {
-      Alert.alert('Login Required', 'Please log in to post a question');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      // 1. Upload all media files
-      const mediaUrls: string[] = [];
-      for (const item of mediaItems) {
-        try {
-          const url = await uploadFile(item.uri, item.type, user.id);
-          mediaUrls.push(url);
-        } catch (err) {
-          console.error('Failed to upload media:', err);
-        }
-      }
-
-      // 2. Insert post into 'posts' table
-      const { error } = await supabase
-        .from('posts')
-        .insert({
-          user_id: user.id,
-          title: description.slice(0, 100), // optional title from first 100 chars
-          preview: description.slice(0, 200),
-          category: selectedCategory,
-          media_urls: mediaUrls,
-          media_type: mediaUrls.length > 0 ? (mediaItems[0]?.type === 'image' ? 'image' : 'video') : null,
-          location: location.trim() || null,
-          created_at: new Date(),
-        });
-
-      if (error) throw error;
-
-      // 3. Show success modal and reset form
-      setShowSuccess(true);
-      setTimeout(() => {
-        setShowSuccess(false);
-        setDescription('');
-        setSelectedCategory(null);
-        setLocation('');
-        setMediaItems([]);
-      }, 2000);
-    } catch (error) {
-      console.error('Submit error:', error);
-      Alert.alert('Error', 'Failed to post your question. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // ---------------------------------------------------------------------------
-  // Media picker
-  // ---------------------------------------------------------------------------
   const pickMedia = async (mediaType: 'image' | 'video') => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -171,13 +97,58 @@ export default function AskPage() {
       setMediaItems(prev => [...prev, {
         uri: asset.uri,
         type: mediaType,
-        fileName: asset.fileName ?? undefined,
+        fileName: asset.fileName ?? undefined, //  convert null to undefined
       }]);
     }
   };
 
   const removeMedia = (index: number) => {
     setMediaItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    if (!isValid) return;
+
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append('userId', currentUserId);
+      formData.append('description', description.trim());
+      formData.append('category', selectedCategory!);
+      if (location.trim()) formData.append('location', location.trim());
+
+      // Append media files
+      for (let i = 0; i < mediaItems.length; i++) {
+        const item = mediaItems[i];
+        const fileObj = {
+          uri: item.uri,
+          type: item.type === 'image' ? 'image/jpeg' : 'video/mp4',
+          name: item.fileName || `${Date.now()}_${i}.${item.type === 'image' ? 'jpg' : 'mp4'}`,
+        } as any;
+        formData.append('media', fileObj);
+      }
+
+      const response = await axios.post(`${POSTING_API}/post`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      if (response.data.success) {
+        setShowSuccess(true);
+        setTimeout(() => {
+          setShowSuccess(false);
+          // Reset form
+          setDescription('');
+          setSelectedCategory(null);
+          setLocation('');
+          setMediaItems([]);
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Submit error:', error);
+      Alert.alert('Error', 'Failed to post your question. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const renderMediaPreview = () => {
@@ -205,9 +176,6 @@ export default function AskPage() {
     );
   };
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
@@ -235,7 +203,7 @@ export default function AskPage() {
           </Animated.View>
 
           <View style={styles.form}>
-            {/* Description */}
+            {/* Description only – no title card */}
             <GlassCard style={styles.card}>
               <Text style={styles.label}>Description</Text>
               <TextInput
@@ -251,7 +219,7 @@ export default function AskPage() {
               <Text style={styles.charCount}>{description.length}/500 characters</Text>
             </GlassCard>
 
-            {/* Categories */}
+            {/* Categories (unchanged) */}
             <GlassCard style={styles.card}>
               <View style={styles.labelRow}>
                 <Ionicons name="pricetag-outline" size={16} color="#11181C" />
@@ -289,7 +257,7 @@ export default function AskPage() {
               />
             </GlassCard>
 
-            {/* Media section */}
+            {/* Media Section (unchanged) */}
             <GlassCard style={styles.card}>
               <View style={styles.labelRow}>
                 <Ionicons name="images-outline" size={16} color="#11181C" />
@@ -332,7 +300,7 @@ export default function AskPage() {
         <BottomNav />
       </View>
 
-      {/* Success Modal */}
+      {/* Success Modal (unchanged) */}
       <Modal transparent visible={showSuccess} animationType="none">
         <View style={styles.modalOverlay}>
           <Animated.View entering={ZoomIn.springify()} exiting={ZoomOut} style={styles.modalCard}>
@@ -348,7 +316,7 @@ export default function AskPage() {
   );
 }
 
-// Styles (unchanged from your original file)
+// Styles – same as original, no changes needed
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
   container: { flex: 1, position: 'relative' },

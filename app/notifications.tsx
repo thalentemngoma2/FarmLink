@@ -1,8 +1,8 @@
 import { BottomNav } from '@/components/bottom-nav';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -25,9 +25,6 @@ import Animated, {
   withTiming
 } from 'react-native-reanimated';
 
-// -----------------------------------------------------------------------------
-// Types
-// -----------------------------------------------------------------------------
 interface Notification {
   id: string;
   type: 'reply' | 'like' | 'follow' | 'achievement' | 'alert' | 'system';
@@ -40,24 +37,8 @@ interface Notification {
   iconColor: string;
 }
 
-// -----------------------------------------------------------------------------
-// Helper: map notification type to icon name & color
-// -----------------------------------------------------------------------------
-const getIconProps = (type: string) => {
-  const mapping: Record<string, { name: string; color: string }> = {
-    reply: { name: 'chatbubble-outline', color: '#3b82f6' },
-    like: { name: 'heart-outline', color: '#ec489a' },
-    follow: { name: 'person-add-outline', color: '#8b5cf6' },
-    achievement: { name: 'trophy-outline', color: '#f59e0b' },
-    alert: { name: 'alert-circle-outline', color: '#ef4444' },
-    system: { name: 'checkmark-circle-outline', color: '#22c55e' },
-  };
-  return mapping[type] || { name: 'notifications-outline', color: '#9ca3af' };
-};
+const NOTIFICATION_API = 'http://192.168.8.143:3000'; // Replace with your IP
 
-// -----------------------------------------------------------------------------
-// Main Component
-// -----------------------------------------------------------------------------
 export default function NotificationsPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -66,39 +47,14 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // ---------------------------------------------------------------------------
-  // Fetch notifications from Supabase
-  // ---------------------------------------------------------------------------
   const fetchNotifications = async () => {
     if (!user) return;
-    setLoading(true);
     try {
-      let query = supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      // Map database rows to Notification interface
-      const formatted = (data || []).map((n: any) => {
-        const { name: iconName, color: iconColor } = getIconProps(n.type);
-        return {
-          id: n.id,
-          type: n.type,
-          title: n.title,
-          message: n.message,
-          time: new Date(n.created_at).toLocaleString(),
-          read: n.read,
-          actionUrl: n.action_url,
-          iconName,
-          iconColor,
-        };
-      });
-      setNotifications(formatted);
-    } catch (err: any) {
+      setLoading(true);
+      const url = `${NOTIFICATION_API}/notifications/${user.id}?filter=${filter}`;
+      const res = await axios.get(url);
+      setNotifications(res.data);
+    } catch (err) {
       console.error('Failed to load notifications', err);
       setError('Failed to load notifications');
     } finally {
@@ -107,81 +63,45 @@ export default function NotificationsPage() {
   };
 
   useEffect(() => {
-    if (user) fetchNotifications();
-  }, [user]);
-
-  // Re‑fetch when filter changes (filtering is done client‑side)
-  useEffect(() => {
-    // No need to refetch; filtering happens in render.
-  }, [filter]);
-
-  // ---------------------------------------------------------------------------
-  // Mark a single notification as read
-  // ---------------------------------------------------------------------------
-  const markAsRead = async (id: string) => {
-    if (!user) return;
-    try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('id', id)
-        .eq('user_id', user.id);
-      if (error) throw error;
-      // Update local state optimistically
-      setNotifications(prev =>
-        prev.map(n => (n.id === id ? { ...n, read: true } : n))
-      );
-    } catch (err) {
-      console.error('Failed to mark as read', err);
+    if (user) {
+      fetchNotifications();
     }
-  };
+  }, [user, filter]);
 
-  // ---------------------------------------------------------------------------
-  // Mark all unread notifications as read
-  // ---------------------------------------------------------------------------
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const filteredNotifications = filter === 'all' ? notifications : notifications.filter((n) => !n.read);
+
   const markAllAsRead = async () => {
     if (!user) return;
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('user_id', user.id)
-        .eq('read', false);
-      if (error) throw error;
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      await axios.post(`${NOTIFICATION_API}/notifications/${user.id}/read-all`);
+      await fetchNotifications();
     } catch (err) {
       console.error('Failed to mark all as read', err);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Delete a notification
-  // ---------------------------------------------------------------------------
+  const markAsRead = async (id: string) => {
+    if (!user) return;
+    try {
+      await axios.post(`${NOTIFICATION_API}/notifications/${user.id}/read/${id}`);
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Failed to mark as read', err);
+    }
+  };
+
   const deleteNotification = async (id: string) => {
     if (!user) return;
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', user.id);
-      if (error) throw error;
-      setNotifications(prev => prev.filter(n => n.id !== id));
+      await axios.delete(`${NOTIFICATION_API}/notifications/${user.id}/${id}`);
+      await fetchNotifications();
     } catch (err) {
       console.error('Failed to delete notification', err);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Computed values
-  // ---------------------------------------------------------------------------
-  const unreadCount = notifications.filter(n => !n.read).length;
-  const filteredNotifications =
-    filter === 'all' ? notifications : notifications.filter(n => !n.read);
-
-  // ---------------------------------------------------------------------------
-  // Background animations (unchanged)
-  // ---------------------------------------------------------------------------
+  // Background animations (same as before)
   const bgScale1 = useSharedValue(1);
   const bgX1 = useSharedValue(0);
   const bgY1 = useSharedValue(0);
@@ -189,7 +109,7 @@ export default function NotificationsPage() {
   const bgX2 = useSharedValue(0);
   const bgY2 = useSharedValue(0);
 
-  useEffect(() => {
+  React.useEffect(() => {
     bgScale1.value = withRepeat(withTiming(1.3, { duration: 20000 }), -1, true);
     bgX1.value = withRepeat(withTiming(30, { duration: 20000 }), -1, true);
     bgY1.value = withRepeat(withTiming(-20, { duration: 20000 }), -1, true);
@@ -205,9 +125,6 @@ export default function NotificationsPage() {
     transform: [{ scale: bgScale2.value }, { translateX: bgX2.value }, { translateY: bgY2.value }],
   }));
 
-  // ---------------------------------------------------------------------------
-  // Render states
-  // ---------------------------------------------------------------------------
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -348,9 +265,6 @@ export default function NotificationsPage() {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Styles (unchanged from your original)
-// -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   blob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)' },

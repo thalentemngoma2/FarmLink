@@ -1,8 +1,8 @@
 import { BottomNav } from '@/components/bottom-nav';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -27,11 +27,11 @@ import Animated, {
   withTiming
 } from 'react-native-reanimated';
 
-// -----------------------------------------------------------------------------
-// Types
-// -----------------------------------------------------------------------------
+const SETTINGS_API = 'http://192.168.8.143:3000'; // Replace with your IP
+
+// Define a proper type for setting items
 interface SettingItem {
-  icon: string;
+  icon: string; // will be cast to any when used
   label: string;
   description?: string;
   href?: string;
@@ -46,9 +46,6 @@ interface SettingSection {
   items: SettingItem[];
 }
 
-// -----------------------------------------------------------------------------
-// Main Component
-// -----------------------------------------------------------------------------
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -61,79 +58,62 @@ export default function SettingsPage() {
   });
   const [loading, setLoading] = useState(true);
 
-  // ---------------------------------------------------------------------------
-  // Data fetching (direct Supabase)
-  // ---------------------------------------------------------------------------
+  // Helper to safely get user id
+  const getUserId = () => {
+    if (!user) throw new Error('User not authenticated');
+    return user.id;
+  };
+
   useEffect(() => {
     if (user) {
-      fetchProfile();
+      fetchUserData();
       fetchSettings();
     }
   }, [user]);
 
-  const fetchProfile = async () => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('name, email, membership_type, avatar')
-      .eq('id', user.id)
-      .single();
-    if (!error && data) setProfile(data);
-  };
-
-  const fetchSettings = async () => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('user_settings')
-      .select('dark_mode, push_notifications, offline_mode, language')
-      .eq('user_id', user.id)
-      .single();
-    if (!error && data) setSettings(data);
-    setLoading(false);
-  };
-
-  // ---------------------------------------------------------------------------
-  // Update a single setting (upsert)
-  // ---------------------------------------------------------------------------
-  const updateSetting = async (key: string, value: any) => {
-    if (!user) return;
-    const newSettings = { ...settings, [key]: value };
-    setSettings(newSettings); // optimistic UI
-
-    const { error } = await supabase
-      .from('user_settings')
-      .upsert({
-        user_id: user.id,
-        ...newSettings,
-        updated_at: new Date(),
-      }, { onConflict: 'user_id' });
-
-    if (error) {
-      Alert.alert('Error', 'Failed to save setting');
-      // revert
-      const { data } = await supabase
-        .from('user_settings')
-        .select('dark_mode, push_notifications, offline_mode, language')
-        .eq('user_id', user.id)
-        .single();
-      if (data) setSettings(data);
+  const fetchUserData = async () => {
+    try {
+      const userId = getUserId();
+      const res = await axios.get(`${SETTINGS_API}/user/${userId}`);
+      setProfile(res.data);
+    } catch (err) {
+      console.error('Failed to fetch profile', err);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Handlers
-  // ---------------------------------------------------------------------------
+  const fetchSettings = async () => {
+    try {
+      const userId = getUserId();
+      const res = await axios.get(`${SETTINGS_API}/settings/${userId}`);
+      setSettings(res.data);
+    } catch (err) {
+      console.error('Failed to fetch settings', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateSetting = async (key: string, value: any) => {
+    if (!user) return;
+    const newSettings = { ...settings, [key]: value };
+    setSettings(newSettings); // optimistic update
+    try {
+      const userId = getUserId();
+      await axios.put(`${SETTINGS_API}/settings/${userId}`, newSettings);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save setting');
+      // revert
+      setSettings(settings);
+    }
+  };
+
   const handleSignOut = async () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-          router.replace('/login');
-        },
-      },
+      { text: 'Sign Out', style: 'destructive', onPress: async () => {
+        await logout();
+        router.replace('/login');
+      } },
     ]);
   };
 
@@ -157,14 +137,12 @@ export default function SettingsPage() {
     Alert.alert('Thank you!', 'Your feedback helps us improve.');
   };
 
-  // ---------------------------------------------------------------------------
-  // Menu sections (dynamic values from state)
-  // ---------------------------------------------------------------------------
+  // Define sections with dynamic values from state
   const settingSections: SettingSection[] = [
     {
       title: 'Account',
       items: [
-        { icon: 'person-outline', label: 'Edit Profile', description: 'Update your personal information', href: '/edit-profile' },
+        { icon: 'person-outline', label: 'Edit Profile', description: 'Update your personal information', href: '/profile' },
         { icon: 'lock-closed-outline', label: 'Privacy & Security', description: 'Manage your privacy settings', href: '/settings/privacy' },
         { icon: 'shield-outline', label: 'Two-Factor Authentication', description: 'Add extra security to your account', href: '/settings/2fa' },
       ],
@@ -202,9 +180,7 @@ export default function SettingsPage() {
     },
   ];
 
-  // ---------------------------------------------------------------------------
-  // Background animations (same as your original)
-  // ---------------------------------------------------------------------------
+  // Background animations
   const bgScale1 = useSharedValue(1);
   const bgX1 = useSharedValue(0);
   const bgY1 = useSharedValue(0);
@@ -228,21 +204,16 @@ export default function SettingsPage() {
     transform: [{ scale: bgScale2.value }, { translateX: bgX2.value }, { translateY: bgY2.value }],
   }));
 
-  // ---------------------------------------------------------------------------
-  // Animated Switch Component
-  // ---------------------------------------------------------------------------
+  // Animated Switch component
   const AnimatedSwitch: React.FC<{ value: boolean; onValueChange: (value: boolean) => void }> = ({ value, onValueChange }) => {
     const translateX = useSharedValue(value ? 20 : 0);
     const bgColor = useSharedValue(value ? 1 : 0);
-
     useEffect(() => {
       translateX.value = withSpring(value ? 20 : 0);
       bgColor.value = withSpring(value ? 1 : 0);
     }, [value]);
-
     const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }));
     const trackStyle = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(bgColor.value, [0, 1], ['#e5e7eb', '#22c55e']) }));
-
     return (
       <TouchableOpacity onPress={() => onValueChange(!value)} activeOpacity={0.7} style={styles.switchContainer}>
         <Animated.View style={[styles.switchTrack, trackStyle]}>
@@ -252,9 +223,6 @@ export default function SettingsPage() {
     );
   };
 
-  // ---------------------------------------------------------------------------
-  // Loading & error states
-  // ---------------------------------------------------------------------------
   if (loading || !profile) {
     return (
       <View style={styles.loadingContainer}>
@@ -263,9 +231,6 @@ export default function SettingsPage() {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Main render
-  // ---------------------------------------------------------------------------
   return (
     <View style={styles.container}>
       <LinearGradient colors={['#f0fdf4', '#ffffff', '#ecfdf5']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
@@ -286,7 +251,7 @@ export default function SettingsPage() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Animated.View entering={SlideInDown.duration(600)} style={styles.userCard}>
           <GlassCard style={styles.userCardGlass}>
-            <Link href="/edit-profile" asChild>
+            <Link href="/profile" asChild>
               <TouchableOpacity style={styles.userCardContent}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>
@@ -310,6 +275,7 @@ export default function SettingsPage() {
               <Text style={styles.sectionTitle}>{section.title}</Text>
               <GlassCard style={styles.sectionCard}>
                 {section.items.map((item, itemIdx) => {
+                  // Helper to render icon safely
                   const IconComponent = () => (
                     <Ionicons name={item.icon as any} size={20} color={item.danger ? '#ef4444' : '#22c55e'} />
                   );
@@ -367,9 +333,6 @@ export default function SettingsPage() {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Styles (unchanged from your original)
-// -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },

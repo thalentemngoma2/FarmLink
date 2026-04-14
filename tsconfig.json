@@ -4,7 +4,9 @@
     "strict": true,
     "types": ["nativewind/types"],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [

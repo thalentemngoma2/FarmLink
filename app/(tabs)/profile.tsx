@@ -1,12 +1,14 @@
 import { BottomNav } from '@/components/bottom-nav';
 import { MobileHeader } from '@/components/mobile-header';
 import { GlassCard } from '@/components/ui/glass-card';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/server/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -28,6 +30,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+
+const router = useRouter();
+
 // Types
 interface ProfileData {
   id: string;
@@ -48,15 +53,15 @@ interface Achievement {
   earned_at: string;
 }
 
-// Static menu items (navigation)
+// Hardcoded menu items (these are static UI, not profile data)
 const menuItems = [
-  { icon: 'notifications-outline', label: 'Notifications', route: '/notifications', badge: 3 },
-  { icon: 'settings-outline', label: 'Settings', route: '/settings' },
-  { icon: 'help-circle-outline', label: 'Help & Support', route: '/help' },
+  { icon: 'notifications-outline', label: 'Notifications', badge: 3 },
+  { icon: 'settings-outline', label: 'Settings' },
+  { icon: 'help-circle-outline', label: 'Help & Support' },
   { icon: 'log-out-outline', label: 'Log Out', danger: true },
 ];
 
-// Achievements list (static labels, earned status from API)
+// Achievements definition (static labels, earned status from API)
 const achievementsList = [
   { id: 'first_question', icon: 'chatbubble-outline', label: 'First Question' },
   { id: 'helpful_answer', icon: 'heart-outline', label: 'Helpful Answer' },
@@ -65,58 +70,36 @@ const achievementsList = [
 ];
 
 export default function ProfilePage() {
-  const router = useRouter();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Get current authenticated user
-  const [userId, setUserId] = useState<string | null>(null);
+  const navigation = useNavigation();
 
-  useEffect(() => {
-    const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserId(user.id);
-        await Promise.all([fetchProfile(user.id), fetchAchievements(user.id)]);
-      } else {
-        // Not logged in – redirect to login
-        router.replace('/login');
-      }
-      setLoading(false);
-    };
-    getCurrentUser();
-  }, []);
+  // For demo, use a fixed user ID. In real app, get from authentication.
+  const currentUserId = 'user_123'; // Replace with actual logged‑in user ID
 
-  const fetchProfile = async (uid: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', uid)
-        .single();
-      if (error) throw error;
-      setProfile(data);
-    } catch (err: any) {
-      console.error('Failed to fetch profile', err);
-      setError(err.message);
-    }
+
+  const fetchProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    if (error) throw error;
+    return data;
   };
 
-  const fetchAchievements = async (uid: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('user_achievements')
-        .select('achievement_id, earned_at')
-        .eq('user_id', uid);
-      if (error) throw error;
-      setAchievements(data || []);
-    } catch (err: any) {
-      console.error('Failed to fetch achievements', err);
-    }
+  const fetchAchievements = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('user_achievements')
+      .select('achievement_id, earned_at')
+      .eq('user_id', userId);
+    if (error) throw error;
+    return data;
   };
 
+  // Helper: check if an achievement is earned
   const isEarned = (achievementId: string) => {
     return achievements.some(a => a.achievement_id === achievementId);
   };
@@ -131,8 +114,14 @@ export default function ProfilePage() {
           text: 'Log Out',
           style: 'destructive',
           onPress: async () => {
-            await supabase.auth.signOut();
-            router.replace('/login');
+            try {
+              await AsyncStorage.multiRemove(['auth_token', 'user_data']);
+              // Use Expo Router's replace method to redirect and clear history
+              router.replace('/login');
+            } catch (error) {
+              console.error('Logout error', error);
+              Alert.alert('Error', 'Failed to log out. Please try again.');
+            }
           },
         },
       ],
@@ -140,13 +129,13 @@ export default function ProfilePage() {
     );
   };
 
-  // Background animations
+  // Background animation (same as before)
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
   const bgScale2 = useSharedValue(1.2);
   const bgOpacity2 = useSharedValue(0.2);
 
-  useEffect(() => {
+  React.useEffect(() => {
     bgScale.value = withRepeat(withTiming(1.2, { duration: 8000 }), -1, true);
     bgOpacity.value = withRepeat(withTiming(0.5, { duration: 10000 }), -1, true);
     bgScale2.value = withRepeat(withTiming(1, { duration: 10000 }), -1, true);
@@ -175,33 +164,26 @@ export default function ProfilePage() {
     );
   }
 
-  if (error || !profile) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
-          <Text style={styles.errorText}>{error || 'Profile not found'}</Text>
-          <TouchableOpacity onPress={() => router.replace('/login')} style={styles.errorButton}>
-            <Text style={styles.errorButtonText}>Go to Login</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const joinDate = new Date(profile.join_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
-
-  const navigateToEditProfile = () => {
-    router.push('../edit-profile');
+  // Fallback if profile not loaded
+  const displayProfile = profile || {
+    name: 'User',
+    avatar: 'U',
+    location: 'Unknown',
+    join_date: new Date().toISOString(),
+    farm_size: 'Not set',
+    main_crops: 'Not set',
+    farming_type: 'Not set',
+    questions_count: 0,
+    answers_count: 0,
+    likes_count: 0,
   };
 
-  const navigateToEditFarm = () => {
-    router.push('../edit-farm');
-  };
+  const joinDate = new Date(displayProfile.join_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
+        {/* Background (unchanged) */}
         <LinearGradient
           colors={['#f0fdf4', '#ffffff', '#ecfdf5']}
           start={{ x: 0, y: 0 }}
@@ -222,25 +204,25 @@ export default function ProfilePage() {
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <MobileHeader />
 
-          {/* Profile header */}
+          {/* Profile header with dynamic data */}
           <Animated.View entering={SlideInDown.duration(500)} style={styles.section}>
             <GlassCard style={styles.profileCard}>
               <View style={styles.profileRow}>
                 <View style={styles.avatarContainer}>
                   <LinearGradient colors={['#22c55e', '#16a34a']} style={styles.avatarGradient}>
                     <Text style={styles.avatarText}>
-                      {profile.avatar || profile.name.charAt(0).toUpperCase()}
+                      {displayProfile.avatar || displayProfile.name.charAt(0).toUpperCase()}
                     </Text>
                   </LinearGradient>
-                  <TouchableOpacity style={styles.editAvatar} onPress={navigateToEditProfile} activeOpacity={0.7}>
+                  <TouchableOpacity style={styles.editAvatar} activeOpacity={0.7}>
                     <Ionicons name="pencil" size={14} color="#22c55e" />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>{profile.name}</Text>
+                  <Text style={styles.profileName}>{displayProfile.name}</Text>
                   <View style={styles.infoRow}>
                     <Ionicons name="location-outline" size={12} color="#9ca3af" />
-                    <Text style={styles.infoText}>{profile.location || 'Location not set'}</Text>
+                    <Text style={styles.infoText}>{displayProfile.location || 'Location not set'}</Text>
                   </View>
                   <View style={styles.infoRow}>
                     <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
@@ -249,26 +231,27 @@ export default function ProfilePage() {
                 </View>
               </View>
 
+              {/* Stats from API */}
               <View style={styles.statsContainer}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{profile.questions_count || 0}</Text>
+                  <Text style={styles.statNumber}>{displayProfile.questions_count}</Text>
                   <Text style={styles.statLabel}>Questions</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{profile.answers_count || 0}</Text>
+                  <Text style={styles.statNumber}>{displayProfile.answers_count}</Text>
                   <Text style={styles.statLabel}>Answers</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{profile.likes_count || 0}</Text>
+                  <Text style={styles.statNumber}>{displayProfile.likes_count}</Text>
                   <Text style={styles.statLabel}>Likes</Text>
                 </View>
               </View>
             </GlassCard>
           </Animated.View>
 
-          {/* Achievements */}
+          {/* Achievements – dynamic earned status */}
           <Animated.View entering={FadeIn.delay(100)} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="trophy-outline" size={18} color="#22c55e" />
@@ -311,7 +294,7 @@ export default function ProfilePage() {
             </GlassCard>
           </Animated.View>
 
-          {/* Farm info */}
+          {/* Farm info – dynamic */}
           <Animated.View entering={FadeIn.delay(150)} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="leaf-outline" size={18} color="#22c55e" />
@@ -320,23 +303,23 @@ export default function ProfilePage() {
             <GlassCard style={styles.farmCard}>
               <View style={styles.farmRow}>
                 <Text style={styles.farmLabel}>Farm Size</Text>
-                <Text style={styles.farmValue}>{profile.farm_size || 'Not specified'}</Text>
+                <Text style={styles.farmValue}>{displayProfile.farm_size || 'Not specified'}</Text>
               </View>
               <View style={styles.farmRow}>
                 <Text style={styles.farmLabel}>Main Crops</Text>
-                <Text style={styles.farmValue}>{profile.main_crops || 'Not specified'}</Text>
+                <Text style={styles.farmValue}>{displayProfile.main_crops || 'Not specified'}</Text>
               </View>
               <View style={styles.farmRow}>
                 <Text style={styles.farmLabel}>Farming Type</Text>
-                <Text style={styles.farmValue}>{profile.farming_type || 'Not specified'}</Text>
+                <Text style={styles.farmValue}>{displayProfile.farming_type || 'Not specified'}</Text>
               </View>
-              <TouchableOpacity style={styles.editFarmButton} onPress={navigateToEditFarm} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.editFarmButton} activeOpacity={0.8}>
                 <Text style={styles.editFarmText}>Edit Farm Details</Text>
               </TouchableOpacity>
             </GlassCard>
           </Animated.View>
 
-          {/* Menu items */}
+          {/* Menu items (static) */}
           <Animated.View entering={FadeIn.delay(200)} style={styles.section}>
             <GlassCard style={styles.menuCard}>
               {menuItems.map((item, idx) => (
@@ -347,8 +330,6 @@ export default function ProfilePage() {
                   onPress={() => {
                     if (item.label === 'Log Out') {
                       handleLogout();
-                    } else if (item.route) {
-                      router.push(item.route as any);
                     } else {
                       console.log(item.label);
                     }
@@ -380,6 +361,7 @@ export default function ProfilePage() {
   );
 }
 
+// Styles (unchanged)
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
   container: { flex: 1, position: 'relative' },
@@ -444,8 +426,4 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 10, fontWeight: '600', color: 'white' },
   version: { textAlign: 'center', fontSize: 10, color: '#9ca3af', marginVertical: 24 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  errorText: { marginTop: 12, fontSize: 16, color: '#ef4444', textAlign: 'center' },
-  errorButton: { marginTop: 24, backgroundColor: '#22c55e', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 },
-  errorButtonText: { color: 'white', fontWeight: '600' },
 });
