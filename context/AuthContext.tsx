@@ -23,6 +23,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Generate a 6-digit OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<any | null>(null);
@@ -70,22 +75,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signup = async (email: string, password: string, name: string) => {
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { name } },
-      });
-      if (error) throw error;
-      console.log('Signup success:', data);
-    } catch (err: any) {
-      throw new Error(err.message || 'Signup failed');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+const signup = async (email: string, password: string, name: string) => {
+  setIsLoading(true);
+  try {
+    // 1. Create user in Supabase Auth (email confirmation disabled)
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name }, emailRedirectTo: undefined },
+    });
+    if (error) throw error;
+    if (!data.user) throw new Error('Signup failed');
+
+    // 2. Generate OTP and store in database
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    const { error: dbError } = await supabase
+      .from('otp_verifications')
+      .insert({ email, otp_code: otp, expires_at: expiresAt });
+
+    if (dbError) throw dbError;
+
+    // 3. Send OTP via Edge Function
+    const { error: invokeError } = await supabase.functions.invoke('send-otp-email', {
+      body: { email, otp },
+    });
+    if (invokeError) throw new Error('Failed to send OTP email');
+
+    console.log('Signup success, OTP sent to', email);
+  } catch (err: any) {
+    throw new Error(err.message || 'Signup failed');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const verifyOTP = async (email: string, token: string) => {
     setIsLoading(true);
@@ -106,22 +130,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const forgotPassword = async (email: string) => {
     setIsLoading(true);
     try {
-      // 1. Check if the email exists in the system
-      const { data: exists, error: checkError } = await supabase.rpc('check_user_exists', {
-        p_email: email,
-      });
-      if (checkError) throw checkError;
-      if (!exists) {
-        throw new Error('No account found with this email address');
-      }
+      // 1. Check if email exists (optional – same as before)
+      const { data: exists } = await supabase.rpc('check_user_exists', { p_email: email });
+      if (!exists) throw new Error('No account found with this email');
 
-      // 2. Proceed with password reset
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: 'farmlink://reset-password',
+      // 2. Generate a secure random token
+      const resetToken = crypto.randomUUID(); // or use a 6‑digit code
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      // 3. Store in DB
+      const { error: dbError } = await supabase
+        .from('password_resets')
+        .insert({ email, reset_token: resetToken, expires_at: expiresAt });
+      if (dbError) throw dbError;
+
+      // 4. Send email via Resend Edge Function
+      const { error: invokeError } = await supabase.functions.invoke('send-reset-email', {
+        body: { email, token: resetToken },
       });
-      if (error) throw error;
+      if (invokeError) throw new Error('Failed to send reset email');
     } catch (err: any) {
-      throw new Error(err.message || 'Failed to send reset email');
+      throw new Error(err.message || 'Password reset failed');
     } finally {
       setIsLoading(false);
     }

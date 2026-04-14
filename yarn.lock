@@ -7035,6 +7035,11 @@ react-is@^19.1.0:
   resolved "https://registry.npmjs.org/react-is/-/react-is-19.2.4.tgz"
   integrity sha512-W+EWGn2v0ApPKgKKCy/7s7WHXkboGcsrXE+2joLyVxkbyVQfO3MUEaUQDHoSmb8TFFrSKYa9mw64WZHNHSDzYA==
 
+react-native-base64@^0.2.2:
+  version "0.2.2"
+  resolved "https://registry.npmjs.org/react-native-base64/-/react-native-base64-0.2.2.tgz#9cadd1bbb9e458f31c7307a23f0ab5cd8577f92e"
+  integrity sha512-9iDzlDQrJqRlgoi7GnO4dqK/7/6lpA3DFrArhp85tDB7ZI6wLr7luHihb/pX6jhm4zlHqOz2OYSGJ6PSgyUO1g==
+
 react-native-calendars@^1.1314.0:
   version "1.1314.0"
   resolved "https://registry.npmjs.org/react-native-calendars/-/react-native-calendars-1.1314.0.tgz"
