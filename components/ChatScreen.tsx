@@ -77,10 +77,12 @@ export function ChatScreen({ chatId, onClose }: ChatScreenProps) {
 
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#22c55e" /></View>;
 
+  // Android: use 90% of screen height; iOS: full height
+  const containerHeight = Platform.OS === 'android' ? '90%' : '100%';
+
   return (
-    <View style={styles.container}>
-      {/* Header with back button and Android top padding */}
-      <View style={[styles.header, Platform.OS === 'android' && { paddingTop: 100 }]}>
+    <View style={[styles.container, { height: containerHeight }]}>
+      <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#11181C" />
         </TouchableOpacity>
@@ -114,7 +116,11 @@ export function ChatScreen({ chatId, onClose }: ChatScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: {
+    paddingTop: Platform.OS === 'android' ? 50 : 0,
+    flex: 1,
+    backgroundColor: '#fff',
+  },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
     flexDirection: 'row',
@@ -126,7 +132,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  backButton: { padding: 8 },
+  backButton: { padding: 8, paddingTop: 100 },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#11181C' },
   messagesList: { padding: 16, paddingBottom: 20 },
   messageBubble: { maxWidth: '80%', padding: 12, borderRadius: 20, marginVertical: 4 },

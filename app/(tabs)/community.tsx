@@ -51,7 +51,7 @@ import { ChatProvider, useChat } from '@/context/ChatContext';
 import { supabase } from '@/lib/supabase';
 
 // -----------------------------------------------------------------------------
-// Helper: Format post time (Now / X hours ago / Date)
+// Helper: Format post time
 // -----------------------------------------------------------------------------
 function formatPostTime(isoString: string): string {
   const date = new Date(isoString);
@@ -68,7 +68,7 @@ function formatPostTime(isoString: string): string {
 }
 
 // -----------------------------------------------------------------------------
-// Helper: Process @mentions and create notifications (for comments)
+// Helper: Process @mentions
 // -----------------------------------------------------------------------------
 async function processMentions(
   content: string,
@@ -113,6 +113,7 @@ interface Comment {
   postedDate: string;
   likes: number;
   likedByUser?: boolean;
+  userId: string;
   replies: Reply[];
 }
 
@@ -154,9 +155,10 @@ const SNAP_EXPANDED = SCREEN_HEIGHT * 0.05;
 const BOTTOM_NAV_HEIGHT = 70;
 
 // -----------------------------------------------------------------------------
-// Helper: map raw Supabase row → Discussion shape
+// Helper: map post – includes liked_by_user check
+// FIXED: separate imageUri and videoUri based on media_type
 // -----------------------------------------------------------------------------
-function mapPost(row: any, currentUserId?: string): Discussion {
+function mapPost(row: any, likedPostIds: Set<string>, currentUserId?: string): Discussion {
   return {
     id: String(row.id),
     avatar: row.profiles?.avatar ?? '🌱',
@@ -169,10 +171,10 @@ function mapPost(row: any, currentUserId?: string): Discussion {
     category: row.category ?? 'General',
     replies: row.comments_count ?? 0,
     likes: row.likes_count ?? 0,
-    imageUri: row.media_urls?.[0] ?? undefined,
-    videoUri: row.media_urls?.[0] ?? undefined,
+    imageUri: row.media_type === 'image' ? row.media_urls?.[0] : undefined,
+    videoUri: row.media_type === 'video' ? row.media_urls?.[0] : undefined,
     mediaType: row.media_type ?? undefined,
-    likedByUser: row.liked_by_user ?? false,
+    likedByUser: likedPostIds.has(row.id),
     isOfficial: row.is_official ?? false,
     comments: [],
   };
@@ -187,6 +189,7 @@ function mapComment(row: any): Comment {
     postedDate: formatPostTime(row.created_at),
     likes: row.likes_count ?? 0,
     likedByUser: false,
+    userId: row.user_id,
     replies: (row.replies ?? []).map((r: any) => mapReply(r)),
   };
 }
@@ -297,16 +300,31 @@ const TikTokBottomSheet = forwardRef<BottomSheetRef, TikTokBottomSheetProps>(
 );
 
 // -----------------------------------------------------------------------------
-// Comment Item Component (unchanged)
+// Comment Item Component
 // -----------------------------------------------------------------------------
 interface CommentItemProps {
   comment: Comment;
   onLike: (commentId: string) => void;
   onReply: (commentId: string, username: string) => void;
+  currentUserId?: string;
+  onDelete?: (commentId: string) => void;
 }
 
-const CommentItem: React.FC<CommentItemProps> = ({ comment, onLike, onReply }) => {
+const CommentItem: React.FC<CommentItemProps> = ({ comment, onLike, onReply, currentUserId, onDelete }) => {
   const [showReplies, setShowReplies] = useState(false);
+  const isOwnComment = currentUserId === comment.userId;
+
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete Comment',
+      'Are you sure you want to delete this comment? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => onDelete?.(comment.id) }
+      ]
+    );
+  };
+
   return (
     <View style={styles.commentItem}>
       <View style={styles.commentRow}>
@@ -317,10 +335,17 @@ const CommentItem: React.FC<CommentItemProps> = ({ comment, onLike, onReply }) =
               <Text style={styles.commentUsername}>@{comment.username}</Text>
               <Text style={styles.commentDate}>{comment.postedDate}</Text>
             </View>
-            <TouchableOpacity onPress={() => onLike(comment.id)} style={styles.likeButton}>
-              <Ionicons name={comment.likedByUser ? 'heart' : 'heart-outline'} size={20} color={comment.likedByUser ? '#ef4444' : '#6b7280'} />
-              <Text style={[styles.likeCount, comment.likedByUser && styles.likeCountActive]}>{comment.likes}</Text>
-            </TouchableOpacity>
+            <View style={styles.commentActions}>
+              <TouchableOpacity onPress={() => onLike(comment.id)} style={styles.likeButton}>
+                <Ionicons name={comment.likedByUser ? 'heart' : 'heart-outline'} size={20} color={comment.likedByUser ? '#ef4444' : '#6b7280'} />
+                <Text style={[styles.likeCount, comment.likedByUser && styles.likeCountActive]}>{comment.likes}</Text>
+              </TouchableOpacity>
+              {isOwnComment && (
+                <TouchableOpacity onPress={handleDelete} style={styles.deleteButton}>
+                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
           <Text style={styles.commentText}>{comment.comment}</Text>
           <TouchableOpacity style={styles.replyButton} onPress={() => onReply(comment.id, comment.username)}>
@@ -405,7 +430,7 @@ const CommunityPageContent = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Fetch posts (left join to profiles)
+  // Fetch posts with like status (left join)
   // ---------------------------------------------------------------------------
   const fetchPosts = async () => {
     try {
@@ -413,20 +438,44 @@ const CommunityPageContent = () => {
       let query = supabase
         .from('posts')
         .select(`
-          *,
+          id,
+          user_id,
+          title,
+          preview,
+          category,
+          created_at,
+          media_urls,
+          media_type,
+          comments_count,
+          likes_count,
+          is_official,
           profiles (
             name,
             avatar
           )
         `)
         .order('created_at', { ascending: false });
+
       if (activeCategory !== 'All') {
         query = query.eq('category', activeCategory);
       }
-      const { data, error } = await query;
-      if (error) throw error;
-      console.log('Fetched posts:', data?.length); // debug
-      setPosts((data ?? []).map((row) => mapPost(row, user?.id)));
+
+      const { data: postsData, error: postsError } = await query;
+      console.log('🔍 Raw posts with profiles:', JSON.stringify(postsData?.slice(0, 2), null, 2));
+      if (postsError) throw postsError;
+
+      let likedPostIds = new Set<string>();
+      if (user) {
+        const { data: likesData, error: likesError } = await supabase
+          .from('post_likes')
+          .select('post_id')
+          .eq('user_id', user.id);
+        if (!likesError && likesData) {
+          likedPostIds = new Set(likesData.map(like => like.post_id));
+        }
+      }
+
+      setPosts((postsData ?? []).map((row) => mapPost(row, likedPostIds, user?.id)));
     } catch (err: any) {
       console.error('Failed to fetch posts', err);
       Alert.alert('Error', 'Could not load community posts');
@@ -482,7 +531,7 @@ const CommunityPageContent = () => {
   const selectedPost = useMemo(() => posts.find(p => p.id === selectedPostId), [posts, selectedPostId]);
 
   // ---------------------------------------------------------------------------
-  // Like a post
+  // Like a post – updates local state and persists
   // ---------------------------------------------------------------------------
   const handleLike = async (id: string) => {
     if (!user) {
@@ -494,11 +543,13 @@ const CommunityPageContent = () => {
     }
     const post = posts.find(p => p.id === id);
     if (!post) return;
+
     setPosts(prev => prev.map(p =>
       p.id === id
         ? { ...p, likes: p.likedByUser ? p.likes - 1 : p.likes + 1, likedByUser: !p.likedByUser }
         : p
     ));
+
     try {
       if (post.likedByUser) {
         await supabase.from('post_likes').delete().eq('post_id', id).eq('user_id', user.id);
@@ -512,6 +563,33 @@ const CommunityPageContent = () => {
           : p
       ));
       Alert.alert('Error', 'Failed to like post');
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Delete a comment
+  // ---------------------------------------------------------------------------
+  const deleteComment = async (commentId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      if (selectedPostId) {
+        const newComments = await fetchComments(selectedPostId);
+        setPosts(prev => prev.map(p =>
+          p.id === selectedPostId
+            ? { ...p, comments: newComments, replies: newComments.length }
+            : p
+        ));
+      }
+      Alert.alert('Success', 'Comment deleted');
+    } catch (error) {
+      console.error('Delete failed', error);
+      Alert.alert('Error', 'Could not delete comment');
     }
   };
 
@@ -617,8 +695,8 @@ const CommunityPageContent = () => {
   const bgBlob1Style = useAnimatedStyle(() => ({ transform: [{ scale: bgScale.value }], opacity: bgOpacity.value }));
   const bgBlob2Style = useAnimatedStyle(() => ({ transform: [{ scale: bgScale2.value }], opacity: bgOpacity2.value }));
 
-  const openChatWithUser = (userId: string, name: string, avatar: string) => {
-    const chatId = createChat(userId, name, avatar);
+  const openChatWithUser = async (userId: string, name: string, avatar: string) => {
+    const chatId = await createChat(userId, name, avatar);
     setActiveChatId(chatId);
     setShowChatList(false);
   };
@@ -781,58 +859,99 @@ const CommunityPageContent = () => {
         )}
 
         <TikTokBottomSheet ref={bottomSheetRef} visible={commentSheetVisible} onClose={closeCommentSheet}>
-          <View style={styles.commentsSheetContainer}>
-            {selectedPost && (
-              <View style={styles.sheetPostHeader}>
-                <Text style={styles.sheetPostTitle} numberOfLines={1}>{selectedPost.title}</Text>
-                <Text style={styles.sheetPostMeta}>{selectedPost.comments.length} comments • {selectedPost.likes} likes</Text>
-              </View>
-            )}
-            <FlatList
-              data={selectedPost?.comments || []}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => <CommentItem comment={item} onLike={() => {}} onReply={handleReply} />}
-              ListEmptyComponent={
-                <View style={styles.emptyComments}>
-                  <Ionicons name="chatbubbles-outline" size={48} color="#d1d5db" />
-                  <Text style={styles.emptyCommentsText}>No comments yet</Text>
-                  <Text style={styles.emptyCommentsSubtext}>Be the first to share your thoughts!</Text>
-                </View>
-              }
-              contentContainerStyle={styles.commentsList}
-              style={styles.commentsFlatList}
-              keyboardDismissMode="interactive"
-            />
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0} style={styles.inputSection}>
-              {replyingTo && (
-                <View style={styles.replyingToBanner}>
-                  <Text style={styles.replyingToText}>Replying to @{replyingTo.username}</Text>
-                  <TouchableOpacity onPress={() => { setReplyingTo(null); setCommentText(''); }}><Ionicons name="close" size={16} color="#6b7280" /></TouchableOpacity>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1 }}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          >
+            <View style={styles.commentsSheetContainer}>
+              {selectedPost && (
+                <View style={styles.sheetPostHeader}>
+                  <Text style={styles.sheetPostTitle} numberOfLines={2}>{selectedPost.title}</Text>
+
+                  {/* Show media if exists */}
+                  {selectedPost.mediaType === 'image' && selectedPost.imageUri && (
+                    <Image
+                      source={{ uri: selectedPost.imageUri }}
+                      style={styles.sheetMedia}
+                      resizeMode="cover"
+                    />
+                  )}
+                  {selectedPost.mediaType === 'video' && selectedPost.videoUri && (
+                    <Video
+                      source={{ uri: selectedPost.videoUri }}
+                      style={styles.sheetMedia}
+                      resizeMode={ResizeMode.COVER}
+                      useNativeControls
+                      shouldPlay={false}
+                      isLooping={false}
+                    />
+                  )}
+
+                  {/* Full preview text with mentions */}
+                  <Text style={styles.sheetPostContent}>
+                    {renderMentions(selectedPost.preview)}
+                  </Text>
+
+                  <Text style={styles.sheetPostMeta}>
+                    {selectedPost.comments.length} comments • {selectedPost.likes} likes
+                  </Text>
                 </View>
               )}
-              <View style={styles.inputRow}>
-                <View style={styles.inputAvatar}><Text style={styles.inputAvatarText}>ME</Text></View>
-                <TextInput
-                  ref={commentInputRef}
-                  style={styles.commentInput}
-                  placeholder={replyingTo ? "Write a reply..." : "Add comment..."}
-                  placeholderTextColor="#9ca3af"
-                  value={commentText}
-                  onChangeText={setCommentText}
-                  multiline
-                  maxLength={500}
-                  onFocus={() => bottomSheetRef.current?.expand()}
-                />
-                <TouchableOpacity
-                  style={[styles.sendButton, !commentText.trim() && styles.sendButtonDisabled]}
-                  onPress={submitComment}
-                  disabled={!commentText.trim()}
-                >
-                  <Ionicons name="send" size={20} color={commentText.trim() ? '#22c55e' : '#9ca3af'} />
-                </TouchableOpacity>
+              <FlatList
+                data={selectedPost?.comments || []}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <CommentItem
+                    comment={item}
+                    onLike={() => {}}
+                    onReply={handleReply}
+                    currentUserId={user?.id}
+                    onDelete={deleteComment}
+                  />
+                )}
+                ListEmptyComponent={
+                  <View style={styles.emptyComments}>
+                    <Ionicons name="chatbubbles-outline" size={48} color="#d1d5db" />
+                    <Text style={styles.emptyCommentsText}>No comments yet</Text>
+                    <Text style={styles.emptyCommentsSubtext}>Be the first to share your thoughts!</Text>
+                  </View>
+                }
+                contentContainerStyle={styles.commentsList}
+                style={styles.commentsFlatList}
+                keyboardDismissMode="interactive"
+              />
+              <View style={styles.inputSection}>
+                {replyingTo && (
+                  <View style={styles.replyingToBanner}>
+                    <Text style={styles.replyingToText}>Replying to @{replyingTo.username}</Text>
+                    <TouchableOpacity onPress={() => { setReplyingTo(null); setCommentText(''); }}><Ionicons name="close" size={16} color="#6b7280" /></TouchableOpacity>
+                  </View>
+                )}
+                <View style={styles.inputRow}>
+                  <View style={styles.inputAvatar}><Text style={styles.inputAvatarText}>ME</Text></View>
+                  <TextInput
+                    ref={commentInputRef}
+                    style={styles.commentInput}
+                    placeholder={replyingTo ? "Write a reply..." : "Add comment..."}
+                    placeholderTextColor="#9ca3af"
+                    value={commentText}
+                    onChangeText={setCommentText}
+                    multiline
+                    maxLength={500}
+                    onFocus={() => bottomSheetRef.current?.expand()}
+                  />
+                  <TouchableOpacity
+                    style={[styles.sendButton, !commentText.trim() && styles.sendButtonDisabled]}
+                    onPress={submitComment}
+                    disabled={!commentText.trim()}
+                  >
+                    <Ionicons name="send" size={20} color={commentText.trim() ? '#22c55e' : '#9ca3af'} />
+                  </TouchableOpacity>
+                </View>
               </View>
-            </KeyboardAvoidingView>
-          </View>
+            </View>
+          </KeyboardAvoidingView>
         </TikTokBottomSheet>
       </SafeAreaView>
     </GestureHandlerRootView>
@@ -851,7 +970,7 @@ export default function CommunityPage() {
 }
 
 // -----------------------------------------------------------------------------
-// Styles (unchanged)
+// Styles (updated with sheetMedia and sheetPostContent)
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
@@ -901,10 +1020,31 @@ const styles = StyleSheet.create({
   handleBar: { width: 40, height: 5, backgroundColor: '#d1d5db', borderRadius: 3, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
   bottomSheetContent: { flex: 1 },
   commentsSheetContainer: { flex: 1, backgroundColor: '#fff' },
+  commentsFlatList: { flex: 1 },
+  inputSection: {
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
+  },
   sheetPostHeader: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
   sheetPostTitle: { fontSize: 16, fontWeight: '600', color: '#11181C', marginBottom: 4 },
+  sheetMedia: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  sheetPostContent: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
   sheetPostMeta: { fontSize: 13, color: '#6b7280' },
-  commentsFlatList: { flex: 1 },
   commentsList: { paddingHorizontal: 16, paddingBottom: 20 },
   commentItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   commentRow: { flexDirection: 'row', gap: 12 },
@@ -914,9 +1054,11 @@ const styles = StyleSheet.create({
   commentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
   commentUsername: { fontSize: 14, fontWeight: '600', color: '#11181C' },
   commentDate: { fontSize: 12, color: '#9ca3af' },
-  likeButton: { alignItems: 'center', marginLeft: 12 },
+  commentActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  likeButton: { alignItems: 'center' },
   likeCount: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   likeCountActive: { color: '#ef4444' },
+  deleteButton: { padding: 4 },
   commentText: { fontSize: 14, color: '#374151', lineHeight: 20, marginBottom: 8 },
   replyButton: { alignSelf: 'flex-start' },
   replyButtonText: { fontSize: 13, color: '#6b7280', fontWeight: '500' },
@@ -937,7 +1079,6 @@ const styles = StyleSheet.create({
   emptyComments: { alignItems: 'center', paddingVertical: 40 },
   emptyCommentsText: { fontSize: 16, fontWeight: '600', color: '#6b7280', marginTop: 12 },
   emptyCommentsSubtext: { fontSize: 14, color: '#9ca3af', marginTop: 4 },
-  inputSection: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingHorizontal: 12, paddingVertical: 10, paddingBottom: Platform.OS === 'ios' ? 20 : 10 },
   replyingToBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginBottom: 8 },
   replyingToText: { fontSize: 13, color: '#22c55e', fontWeight: '500' },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },

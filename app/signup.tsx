@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,7 +13,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import Animated, {
   FadeIn,
@@ -86,10 +87,18 @@ export default function SignupPage() {
 
     setIsLoading(true);
     try {
-      // Call the signup method from AuthContext
+      // Call the signup method from AuthContext (creates user in Supabase Auth)
       await signup(formData.email, formData.password, formData.fullName);
-      // After successful signup, redirect to OTP verification page with email
-      router.push(`/verify-otp?email=${encodeURIComponent(formData.email)}`);
+      
+      // Show a success message and redirect to login
+      Alert.alert(
+        'Account Created',
+        'Please check your email for a confirmation link (if required) and then log in.',
+        [{ text: 'OK', onPress: () => router.replace('/login') }]
+      );
+      
+      // OTP verification is temporarily disabled – users will confirm via email (if enabled) or log in directly.
+      // router.push(`/verify-otp?email=${encodeURIComponent(formData.email)}`);
     } catch (err: any) {
       setError(err.message || 'Signup failed. Please try again.');
     } finally {

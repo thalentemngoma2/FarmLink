@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 
-interface Chat {
+interface DisplayChat {
   id: string;
   participant: {
     id: string;
@@ -40,9 +40,16 @@ export function ChatList({ onClose, onOpenChat }: ChatListProps) {
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
   useEffect(() => {
-    // Chats are already in context, but we can simulate loading
     setLoading(false);
   }, []);
+
+  // ✅ Fixed mapping: use last_message and last_message_time directly
+  const displayChats: DisplayChat[] = chats.map(chat => ({
+    id: chat.id,
+    participant: chat.participant,
+    last_message: chat.last_message || 'Start chatting!',
+    updated_at: chat.last_message_time || new Date().toISOString(),
+  }));
 
   const searchUsers = async (query: string) => {
     if (!query) {
@@ -58,13 +65,13 @@ export function ChatList({ onClose, onOpenChat }: ChatListProps) {
   };
 
   const startNewChat = async (selectedUser: any) => {
-    const chatId = createChat(selectedUser.user_id, selectedUser.name, selectedUser.avatar);
+    const chatId = await createChat(selectedUser.user_id, selectedUser.name, selectedUser.avatar);
     setNewChatModalVisible(false);
     setSearchQuery('');
     onOpenChat(chatId);
   };
 
-  const renderChatItem = ({ item }: { item: Chat }) => (
+  const renderChatItem = ({ item }: { item: DisplayChat }) => (
     <TouchableOpacity style={styles.chatItem} onPress={() => onOpenChat(item.id)}>
       <View style={styles.avatar}>
         <Text style={styles.avatarText}>{item.participant.avatar}</Text>
@@ -81,7 +88,6 @@ export function ChatList({ onClose, onOpenChat }: ChatListProps) {
 
   return (
     <View style={styles.container}>
-      {/* Header with back button and new chat button */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#11181C" />
@@ -93,7 +99,7 @@ export function ChatList({ onClose, onOpenChat }: ChatListProps) {
       </View>
 
       <FlatList
-        data={chats}
+        data={displayChats}
         renderItem={renderChatItem}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.list}
