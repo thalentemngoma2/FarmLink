@@ -29,15 +29,13 @@ import {
 } from 'react-native-gesture-handler';
 import Animated, {
   FadeIn,
-  FadeOut,
   interpolate,
-  Layout,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withSpring,
-  withTiming,
+  withTiming
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -60,7 +58,6 @@ function formatPostTime(isoString: string): string {
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
-
   if (diffMins < 1) return 'Now';
   if (diffHours < 1) return `${diffMins} min ago`;
   if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
@@ -87,7 +84,7 @@ async function processMentions(
       .from('profiles')
       .select('id')
       .eq('name', username)
-      .single();
+      .maybeSingle();
     if (profile && profile.id !== actorUserId) {
       await supabase.from('notifications').insert({
         user_id: profile.id,
@@ -155,10 +152,20 @@ const SNAP_EXPANDED = SCREEN_HEIGHT * 0.05;
 const BOTTOM_NAV_HEIGHT = 70;
 
 // -----------------------------------------------------------------------------
+// Helper: Get media URL (works for both array and string)
+// -----------------------------------------------------------------------------
+function getMediaUrl(mediaUrls: any, mediaType?: string): string | undefined {
+  if (!mediaUrls) return undefined;
+  if (Array.isArray(mediaUrls)) return mediaUrls[0];
+  if (typeof mediaUrls === 'string') return mediaUrls;
+  return undefined;
+}
+
+// -----------------------------------------------------------------------------
 // Helper: map post – includes liked_by_user check
-// FIXED: separate imageUri and videoUri based on media_type
 // -----------------------------------------------------------------------------
 function mapPost(row: any, likedPostIds: Set<string>, currentUserId?: string): Discussion {
+  const mediaUrl = getMediaUrl(row.media_urls, row.media_type);
   return {
     id: String(row.id),
     avatar: row.profiles?.avatar ?? '🌱',
@@ -171,8 +178,8 @@ function mapPost(row: any, likedPostIds: Set<string>, currentUserId?: string): D
     category: row.category ?? 'General',
     replies: row.comments_count ?? 0,
     likes: row.likes_count ?? 0,
-    imageUri: row.media_type === 'image' ? row.media_urls?.[0] : undefined,
-    videoUri: row.media_type === 'video' ? row.media_urls?.[0] : undefined,
+    imageUri: row.media_type === 'image' ? mediaUrl : undefined,
+    videoUri: row.media_type === 'video' ? mediaUrl : undefined,
     mediaType: row.media_type ?? undefined,
     likedByUser: likedPostIds.has(row.id),
     isOfficial: row.is_official ?? false,
@@ -475,7 +482,8 @@ const CommunityPageContent = () => {
         }
       }
 
-      setPosts((postsData ?? []).map((row) => mapPost(row, likedPostIds, user?.id)));
+      const mappedPosts = (postsData ?? []).map((row) => mapPost(row, likedPostIds, user?.id));
+      setPosts(mappedPosts);
     } catch (err: any) {
       console.error('Failed to fetch posts', err);
       Alert.alert('Error', 'Could not load community posts');
@@ -483,6 +491,11 @@ const CommunityPageContent = () => {
       setLoading(false);
     }
   };
+
+  // Debug: log posts when they change
+  useEffect(() => {
+    console.log('📦 Posts state:', posts.length, 'items');
+  }, [posts]);
 
   // ---------------------------------------------------------------------------
   // Fetch comments (left join to profiles)
@@ -664,7 +677,7 @@ const CommunityPageContent = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Video auto‑play
+  // Video auto‑play (simplified)
   // ---------------------------------------------------------------------------
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     const visibleVideo = viewableItems.find((item: any) => item.item.mediaType === 'video' && item.item.videoUri);
@@ -681,7 +694,7 @@ const CommunityPageContent = () => {
 
   const viewabilityConfig = { viewAreaCoveragePercentThreshold: 50 };
 
-  // Background animations
+  // Background animations (keep for overall background, not card)
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
   const bgScale2 = useSharedValue(1.2);
@@ -703,78 +716,106 @@ const CommunityPageContent = () => {
 
   const { width, height } = Dimensions.get('window');
 
-  const renderItem = ({ item, index }: { item: Discussion; index: number }) => (
-    <Animated.View entering={FadeIn.delay(index * 50)} exiting={FadeOut} layout={Layout.springify()} style={styles.columnItem}>
-      <View style={styles.cardContainer}>
-        <View style={styles.mediaBackground}>
-          {item.mediaType === 'video' && item.videoUri ? (
-            <Video
-              ref={(ref) => { if (ref) videoRefs.current.set(item.id, ref); else videoRefs.current.delete(item.id); }}
-              source={{ uri: item.videoUri }}
-              style={StyleSheet.absoluteFillObject}
-              resizeMode={ResizeMode.COVER}
-              shouldPlay={visibleVideoId === item.id}
-              isLooping
-              useNativeControls={false}
-              volume={0}
-            />
-          ) : item.imageUri ? (
-            <Image source={{ uri: item.imageUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
-          ) : (
-            <LinearGradient colors={['#22c55e', '#166534']} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-          )}
-          <View style={styles.mediaOverlay} />
-        </View>
-        <TouchableOpacity activeOpacity={0.9} onPress={() => console.log('Open discussion', item.id)} style={styles.cardContent}>
-          <View style={styles.cardTopSection}>
-            <TouchableOpacity onPress={() => openChatWithUser(item.authorId, item.author, item.avatar)}>
-              <View style={styles.authorRow}>
-                <View style={styles.avatar}><Text style={styles.avatarText}>{item.avatar}</Text></View>
-                <View>
-                  <View style={styles.authorNameRow}>
-                    <Text style={styles.authorName}>{item.author}</Text>
-                    {item.isOfficial && (
-                      <View style={styles.officialBadge}>
-                        <Ionicons name="checkmark-circle" size={12} color="#fff" />
-                        <Text style={styles.officialText}>Official</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.timeRow}>
-                    <Ionicons name="time-outline" size={12} color="#ddd" />
-                    <Text style={styles.timeText}>{item.timeAgo}</Text>
-                  </View>
+  // ---------------------------------------------------------------------------
+  // SIMPLIFIED CARD RENDERER (NO ABSOLUTE POSITIONING, NO COMPLEX GRADIENTS)
+  // ---------------------------------------------------------------------------
+  const renderItem = ({ item, index }: { item: Discussion; index: number }) => {
+    console.log(`Rendering post ${index}: ${item.title}`);
+    return (
+      <Animated.View entering={FadeIn.delay(index * 50)} style={styles.simpleCard}>
+        {/* Media (image/video) */}
+        {item.mediaType === 'video' && item.videoUri ? (
+          <Video
+            ref={(ref) => { if (ref) videoRefs.current.set(item.id, ref); else videoRefs.current.delete(item.id); }}
+            source={{ uri: item.videoUri }}
+            style={styles.simpleMedia}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={visibleVideoId === item.id}
+            isLooping
+            useNativeControls={false}
+            volume={0}
+          />
+        ) : item.imageUri ? (
+          <Image source={{ uri: item.imageUri }} style={styles.simpleMedia} resizeMode="cover" />
+        ) : null}
+
+        {/* Content */}
+        <View style={styles.simpleContent}>
+          {/* Author row */}
+          <TouchableOpacity onPress={() => openChatWithUser(item.authorId, item.author, item.avatar)}>
+            <View style={styles.authorRow}>
+              <Text style={styles.avatarText}>{item.avatar}</Text>
+              <View>
+                <View style={styles.authorNameRow}>
+                  <Text style={styles.authorName}>{item.author}</Text>
+                  {item.isOfficial && <Text style={styles.officialBadge}>Official</Text>}
                 </View>
-              </View>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.cardBottomSection}>
-            <Text style={styles.preview} numberOfLines={3}>
-              {renderMentions(item.preview)}
-            </Text>
-            <View style={styles.footer}>
-              <View style={styles.categoryBadge}><Text style={styles.categoryText}>{item.category}</Text></View>
-              <View style={styles.statsRow}>
-                <TouchableOpacity style={styles.stat} onPress={() => handleLike(item.id)}>
-                  <Ionicons name={item.likedByUser ? 'heart' : 'heart-outline'} size={16} color={item.likedByUser ? '#ef4444' : '#fff'} />
-                  <Text style={styles.statText}>{item.likes}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.stat} onPress={() => handleComment(item.id)}>
-                  <Ionicons name="chatbubble-outline" size={16} color="#fff" />
-                  <Text style={styles.statText}>{item.replies}</Text>
-                </TouchableOpacity>
+                <Text style={styles.timeText}>{item.timeAgo}</Text>
               </View>
             </View>
+          </TouchableOpacity>
+
+          {/* Preview */}
+          <Text style={styles.preview} numberOfLines={3}>
+            {renderMentions(item.preview)}
+          </Text>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <View style={styles.categoryBadge}><Text style={styles.categoryText}>{item.category}</Text></View>
+            <View style={styles.statsRow}>
+              <TouchableOpacity style={styles.stat} onPress={() => handleLike(item.id)}>
+                <Ionicons name={item.likedByUser ? 'heart' : 'heart-outline'} size={16} color={item.likedByUser ? '#ef4444' : '#11181C'} />
+                <Text style={styles.statText}>{item.likes}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.stat} onPress={() => handleComment(item.id)}>
+                <Ionicons name="chatbubble-outline" size={16} color="#11181C" />
+                <Text style={styles.statText}>{item.replies}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </TouchableOpacity>
-      </View>
-    </Animated.View>
-  );
+        </View>
+      </Animated.View>
+    );
+  };
 
   const ListFooterComponent = () => (
     <View style={styles.loadMoreContainer}>
       <Text style={styles.loadMoreText}>↓ Load more posts ↓</Text>
     </View>
+  );
+
+  const ListHeaderComponent = () => (
+    <>
+      <MobileHeader />
+      <Animated.View entering={FadeIn.delay(100)} style={styles.searchContainer}>
+        <GlassCard style={styles.searchCard}>
+          <View style={styles.searchRow}>
+            <Ionicons name="search" size={20} color="#9ca3af" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search discussions..."
+              placeholderTextColor="#9ca3af"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            <TouchableOpacity style={styles.filterButton}><Ionicons name="options-outline" size={18} color="#9ca3af" /></TouchableOpacity>
+          </View>
+        </GlassCard>
+      </Animated.View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsContainer}>
+        {categories.map((category) => (
+          <TouchableOpacity
+            key={category}
+            style={[styles.tab, activeCategory === category && styles.tabActive]}
+            onPress={() => setActiveCategory(category)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.tabText, activeCategory === category && styles.tabTextActive]}>{category}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </>
   );
 
   if (loading) {
@@ -795,49 +836,17 @@ const CommunityPageContent = () => {
           <Animated.View style={[styles.bgBlob, { left: -width * 0.2, top: -height * 0.2, width: width * 0.6, height: width * 0.6 }, bgBlob1Style]}><BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} /></Animated.View>
           <Animated.View style={[styles.bgBlob, { right: -width * 0.2, bottom: -height * 0.2, width: width * 0.7, height: width * 0.7 }, bgBlob2Style]}><BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} /></Animated.View>
 
-          <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: BOTTOM_NAV_HEIGHT }]} showsVerticalScrollIndicator={false}>
-            <MobileHeader />
-
-            <Animated.View entering={FadeIn.delay(100)} style={styles.searchContainer}>
-              <GlassCard style={styles.searchCard}>
-                <View style={styles.searchRow}>
-                  <Ionicons name="search" size={20} color="#9ca3af" />
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search discussions..."
-                    placeholderTextColor="#9ca3af"
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                  />
-                  <TouchableOpacity style={styles.filterButton}><Ionicons name="options-outline" size={18} color="#9ca3af" /></TouchableOpacity>
-                </View>
-              </GlassCard>
-            </Animated.View>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsContainer}>
-              {categories.map((category) => (
-                <TouchableOpacity
-                  key={category}
-                  style={[styles.tab, activeCategory === category && styles.tabActive]}
-                  onPress={() => setActiveCategory(category)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.tabText, activeCategory === category && styles.tabTextActive]}>{category}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <FlatList
-              data={filteredPosts}
-              renderItem={renderItem}
-              keyExtractor={(item) => item.id}
-              scrollEnabled={false}
-              contentContainerStyle={styles.flatListContainer}
-              onViewableItemsChanged={onViewableItemsChanged}
-              viewabilityConfig={viewabilityConfig}
-              ListFooterComponent={ListFooterComponent}
-            />
-          </ScrollView>
+          <FlatList
+            data={filteredPosts}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={[styles.flatListContainer, { paddingBottom: BOTTOM_NAV_HEIGHT }]}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+            ListHeaderComponent={ListHeaderComponent}
+            ListFooterComponent={ListFooterComponent}
+            showsVerticalScrollIndicator={false}
+          />
 
           <BottomNav />
         </View>
@@ -868,14 +877,8 @@ const CommunityPageContent = () => {
               {selectedPost && (
                 <View style={styles.sheetPostHeader}>
                   <Text style={styles.sheetPostTitle} numberOfLines={2}>{selectedPost.title}</Text>
-
-                  {/* Show media if exists */}
                   {selectedPost.mediaType === 'image' && selectedPost.imageUri && (
-                    <Image
-                      source={{ uri: selectedPost.imageUri }}
-                      style={styles.sheetMedia}
-                      resizeMode="cover"
-                    />
+                    <Image source={{ uri: selectedPost.imageUri }} style={styles.sheetMedia} resizeMode="cover" />
                   )}
                   {selectedPost.mediaType === 'video' && selectedPost.videoUri && (
                     <Video
@@ -887,15 +890,8 @@ const CommunityPageContent = () => {
                       isLooping={false}
                     />
                   )}
-
-                  {/* Full preview text with mentions */}
-                  <Text style={styles.sheetPostContent}>
-                    {renderMentions(selectedPost.preview)}
-                  </Text>
-
-                  <Text style={styles.sheetPostMeta}>
-                    {selectedPost.comments.length} comments • {selectedPost.likes} likes
-                  </Text>
+                  <Text style={styles.sheetPostContent}>{renderMentions(selectedPost.preview)}</Text>
+                  <Text style={styles.sheetPostMeta}>{selectedPost.comments.length} comments • {selectedPost.likes} likes</Text>
                 </View>
               )}
               <FlatList
@@ -958,9 +954,6 @@ const CommunityPageContent = () => {
   );
 };
 
-// -----------------------------------------------------------------------------
-// Export
-// -----------------------------------------------------------------------------
 export default function CommunityPage() {
   return (
     <ChatProvider>
@@ -970,12 +963,11 @@ export default function CommunityPage() {
 }
 
 // -----------------------------------------------------------------------------
-// Styles (updated with sheetMedia and sheetPostContent)
+// SIMPLIFIED STYLES (no absolute positioning on cards)
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
   container: { flex: 1, position: 'relative' },
-  scrollContent: { flexGrow: 1, paddingTop: 90 },
   bgBlob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)', overflow: 'hidden' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   searchContainer: { paddingHorizontal: 16, marginBottom: 16, marginTop: 16 },
@@ -988,31 +980,112 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: '#22c55e', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
   tabText: { fontSize: 14, fontWeight: '500', color: '#687076' },
   tabTextActive: { color: '#fff' },
-  flatListContainer: { paddingHorizontal: 16, gap: 16 },
-  columnItem: { width: '100%', marginBottom: 16 },
-  cardContainer: { borderRadius: 20, overflow: 'hidden', backgroundColor: '#000', minHeight: 280, position: 'relative' },
-  mediaBackground: { ...StyleSheet.absoluteFillObject, backgroundColor: '#1e293b' },
-  mediaOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0, 0, 0, 0.4)' },
-  cardContent: { padding: 16, flex: 1, justifyContent: 'space-between' },
-  cardTopSection: {},
-  cardBottomSection: { gap: 12 },
-  authorRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(34,197,94,0.8)', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 14, fontWeight: 'bold', color: '#fff' },
-  authorNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  authorName: { fontSize: 15, fontWeight: '600', color: '#fff' },
-  officialBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#22c55e', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 12, gap: 2 },
-  officialText: { fontSize: 10, fontWeight: '600', color: 'white' },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  timeText: { fontSize: 11, color: '#ddd' },
-  preview: { fontSize: 14, color: '#e5e7eb', lineHeight: 20 },
-  mentionLink: { color: '#22c55e', fontWeight: '500' },
-  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' },
-  categoryBadge: { backgroundColor: 'rgba(34,197,94,0.9)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  categoryText: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 20 },
-  stat: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  statText: { fontSize: 14, color: '#fff', fontWeight: '600' },
+  flatListContainer: { paddingHorizontal: 16, paddingTop: 90, gap: 16 },
+  // SIMPLE CARD STYLES
+  simpleCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  simpleMedia: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#e5e7eb',
+  },
+  simpleContent: {
+    padding: 16,
+  },
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  avatarText: {
+    fontSize: 24,
+    backgroundColor: '#22c55e',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    overflow: 'hidden',
+    color: 'white',
+  },
+  authorNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  authorName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#11181C',
+  },
+  officialBadge: {
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 12,
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'white',
+    overflow: 'hidden',
+  },
+  timeText: {
+    fontSize: 11,
+    color: '#9ca3af',
+  },
+  preview: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  mentionLink: {
+    color: '#22c55e',
+    fontWeight: '500',
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f3f4f6',
+  },
+  categoryBadge: {
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  categoryText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+  },
+  stat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statText: {
+    fontSize: 14,
+    color: '#11181C',
+    fontWeight: '500',
+  },
   loadMoreContainer: { alignItems: 'center', paddingVertical: 24 },
   loadMoreText: { fontSize: 14, color: '#22c55e', fontWeight: '500' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
@@ -1021,29 +1094,11 @@ const styles = StyleSheet.create({
   bottomSheetContent: { flex: 1 },
   commentsSheetContainer: { flex: 1, backgroundColor: '#fff' },
   commentsFlatList: { flex: 1 },
-  inputSection: {
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
-  },
+  inputSection: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingHorizontal: 12, paddingVertical: 10, paddingBottom: Platform.OS === 'ios' ? 20 : 10 },
   sheetPostHeader: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
   sheetPostTitle: { fontSize: 16, fontWeight: '600', color: '#11181C', marginBottom: 4 },
-  sheetMedia: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  sheetPostContent: {
-    fontSize: 14,
-    color: '#374151',
-    lineHeight: 20,
-    marginBottom: 8,
-  },
+  sheetMedia: { width: '100%', height: 200, borderRadius: 12, marginTop: 10, marginBottom: 10 },
+  sheetPostContent: { fontSize: 14, color: '#374151', lineHeight: 20, marginBottom: 8 },
   sheetPostMeta: { fontSize: 13, color: '#6b7280' },
   commentsList: { paddingHorizontal: 16, paddingBottom: 20 },
   commentItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
