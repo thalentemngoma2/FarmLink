@@ -18,11 +18,11 @@ export default function EditFarmScreen() {
   const loadFarm = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from('profiles').select('farm_size, main_crops, farming_type').eq('id', user.id).single();
+    const { data } = await supabase.from('profiles').select('farm_size, main_crops, farm_type').eq('user_id', user.id).maybeSingle();
     if (data) {
       setFarmSize(data.farm_size || '');
       setMainCrops(data.main_crops || '');
-      setFarmingType(data.farming_type || '');
+      setFarmingType(data.farm_type || '');
     }
   };
 
@@ -32,8 +32,7 @@ export default function EditFarmScreen() {
     if (!user) return;
     const { error } = await supabase
       .from('profiles')
-      .update({ farm_size: farmSize, main_crops: mainCrops, farming_type: farmingType })
-      .eq('id', user.id);
+      .upsert({ user_id: user.id, farm_size: farmSize, main_crops: mainCrops, farm_type: farmingType });
     setLoading(false);
     if (error) Alert.alert('Error', error.message);
     else {

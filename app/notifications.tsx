@@ -24,6 +24,7 @@ import Animated, {
   withRepeat,
   withTiming
 } from 'react-native-reanimated';
+import { API_BASE } from './(tabs)/api';
 
 interface Notification {
   id: string;
@@ -37,7 +38,7 @@ interface Notification {
   iconColor: string;
 }
 
-const NOTIFICATION_API = 'http://192.168.8.143:3000'; // Replace with your IP
+const NOTIFICATION_API = API_BASE; // Replace with your IP
 
 export default function NotificationsPage() {
   const router = useRouter();

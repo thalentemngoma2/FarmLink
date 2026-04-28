@@ -69,7 +69,7 @@ export default function VerifyOTPPage() {
     bgScale2.value = withRepeat(withTiming(1, { duration: 25000 }), -1, true);
     bgX2.value = withRepeat(withTiming(-40, { duration: 25000 }), -1, true);
     bgY2.value = withRepeat(withTiming(40, { duration: 25000 }), -1, true);
-  }, []);
+  }, [bgScale1, bgScale2, bgX1, bgX2, bgY1, bgY2]);
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale1.value }, { translateX: bgX1.value }, { translateY: bgY1.value }],
@@ -158,7 +158,7 @@ export default function VerifyOTPPage() {
             </TouchableOpacity>
 
             <View style={styles.resendContainer}>
-              <Text style={styles.resendText}>Didn't receive the code? </Text>
+              <Text style={styles.resendText}>Did not receive the code? </Text>
               <TouchableOpacity onPress={() => { /* resend logic can be added later */ }}>
                 <Text style={styles.resendLink}>Resend</Text>
               </TouchableOpacity>

@@ -61,7 +61,7 @@ export default function LoginPage() {
     bgX2.value = withRepeat(withTiming(-40, { duration: 25000 }), -1, true);
     bgY2.value = withRepeat(withTiming(40, { duration: 25000 }), -1, true);
     bgY3.value = withRepeat(withTiming(-20, { duration: 15000 }), -1, true);
-  }, []);
+  }, [bgScale1, bgScale2, bgScale3, bgX1, bgX2, bgY1, bgY2, bgY3]);
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale1.value }, { translateX: bgX1.value }, { translateY: bgY1.value }],
@@ -179,7 +179,7 @@ export default function LoginPage() {
           </GlassCard>
 
           <View style={styles.signupContainer}>
-            <Text style={styles.signupText}>Don't have an account? </Text>
+            <Text style={styles.signupText}>Don&apos;t have an account? </Text>
             <TouchableOpacity onPress={() => router.push('/signup')}>
               <Text style={styles.signupLink}>Sign up</Text>
             </TouchableOpacity>

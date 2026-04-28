@@ -64,12 +64,12 @@ export default function ForgotPasswordPage() {
 
   React.useEffect(() => {
     bgScale1.value = withRepeat(withTiming(1.3, { duration: 20000 }), -1, true);
+    bgScale2.value = withRepeat(withTiming(1.2, { duration: 25000 }), -1, true);
     bgX1.value = withRepeat(withTiming(50, { duration: 20000 }), -1, true);
-    bgY1.value = withRepeat(withTiming(-30, { duration: 20000 }), -1, true);
-    bgScale2.value = withRepeat(withTiming(1, { duration: 25000 }), -1, true);
     bgX2.value = withRepeat(withTiming(-40, { duration: 25000 }), -1, true);
+    bgY1.value = withRepeat(withTiming(-30, { duration: 20000 }), -1, true);
     bgY2.value = withRepeat(withTiming(40, { duration: 25000 }), -1, true);
-  }, []);
+  }, [bgScale1, bgScale2, bgX1, bgX2, bgY1, bgY2]);
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale1.value }, { translateX: bgX1.value }, { translateY: bgY1.value }],
@@ -115,7 +115,7 @@ export default function ForgotPasswordPage() {
                   <Text style={styles.headerTitle}>Reset Password</Text>
                 </View>
                 <Text style={styles.description}>
-                  Enter your email address and we'll send you a link to reset your password.
+                  Enter your email address and we&apos;ll send you a link to reset your password.
                 </Text>
 
                 {error !== '' && (

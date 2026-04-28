@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import axios from 'axios';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,6 +10,7 @@ import {
   Dimensions,
   Image,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -34,6 +34,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomNav } from '@/components/bottom-nav';
 import { MobileHeader } from '@/components/mobile-header';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 // -------------------- Types --------------------
 type PlantState = 'undergrowth' | 'overgrowth' | 'disease' | 'healthy';
@@ -63,9 +64,6 @@ interface CommunityScan {
   analysisState: string;
   timestamp: string;
 }
-
-// Update this to your actual backend URL (IP or domain)
-const SCAN_API = 'http://192.168.8.143:3000';
 
 export default function FarmLinkPage() {
   const { user } = useAuth();
@@ -97,20 +95,36 @@ export default function FarmLinkPage() {
 
   const fetchUserScans = async (userId: string) => {
     try {
-      const res = await axios.get(`${SCAN_API}/scans/${userId}`);
-      const scans = res.data.map((scan: any) => ({
-        id: scan.id,
-        plantName: scan.plant_name,
-        imageUri: scan.image_url,
-        analysis: {
-          state: scan.analysis_state,
-          cause: scan.analysis_cause,
-          solution: scan.analysis_solution,
-          preventiveTips: scan.analysis_preventive,
-        },
-        timestamp: scan.created_at,
-        synced: true,
-      }));
+      const { data, error } = await supabase
+        .from('plant_scans')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const scans = (data || []).map((scan: any) => {
+        const analysis = scan.analysis_result || {
+          state: scan.analysis_state || 'healthy',
+          cause: scan.analysis_cause || 'Unknown',
+          solution: scan.analysis_solution || 'N/A',
+          preventiveTips: scan.analysis_preventive || 'N/A',
+        };
+
+        return {
+          id: scan.scan_id || scan.id,
+          plantName: scan.plant_name || 'Unknown',
+          imageUri: scan.image_url,
+          analysis: {
+            state: analysis.state,
+            cause: analysis.cause,
+            solution: analysis.solution,
+            preventiveTips: analysis.preventiveTips || analysis.preventive,
+          },
+          timestamp: scan.created_at,
+          synced: true,
+        };
+      });
       setScanHistory(scans);
     } catch (error) {
       console.error('Failed to load scans', error);
@@ -120,15 +134,66 @@ export default function FarmLinkPage() {
   const fetchCommunityScans = async () => {
     setLoadingCommunity(true);
     try {
-      // Fixed endpoint: should be something like /community-scans
-      const url = `${SCAN_API}/community-scans`;
-      const res = await axios.get(url);
-      setCommunityScans(res.data);
+      const { data, error } = await supabase
+        .from('plant_scans')
+        .select('*, users(username)')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      const cScans = (data || []).map((scan: any) => {
+        const analysis = scan.analysis_result || { state: scan.analysis_state || 'healthy' };
+        let stateDisplay = 'Healthy';
+        if (analysis.state === 'disease') stateDisplay = 'Disease detected';
+        if (analysis.state === 'undergrowth') stateDisplay = 'Undergrowth';
+        if (analysis.state === 'overgrowth') stateDisplay = 'Overgrowth';
+
+        return {
+          id: scan.scan_id || scan.id,
+          farmerName: scan.users?.username || 'Farmer',
+          location: 'Unknown',
+          imageUri: scan.image_url,
+          plantName: scan.plant_name || 'Plant',
+          analysisState: stateDisplay,
+          timestamp: formatRelativeTime(scan.created_at),
+        };
+      });
+      setCommunityScans(cScans);
     } catch (error) {
       console.error('Failed to load community scans', error);
     } finally {
       setLoadingCommunity(false);
     }
+  };
+
+  const mockAnalyzePlant = async () => {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const random = Math.random();
+    if (random < 0.25) return {
+      state: 'undergrowth' as PlantState,
+      cause: 'Nitrogen deficiency or insufficient sunlight.',
+      solution: 'Apply compost tea or a balanced organic fertilizer.',
+      preventiveTips: 'Test soil before planting. Rotate crops.',
+    };
+    if (random < 0.5) return {
+      state: 'overgrowth' as PlantState,
+      cause: 'Excessive nitrogen fertilization or poor pruning.',
+      solution: 'Reduce nitrogen-heavy fertilizers. Prune overcrowded branches.',
+      preventiveTips: 'Follow recommended fertilizer schedules.',
+    };
+    if (random < 0.75) return {
+      state: 'disease' as PlantState,
+      cause: 'Fungal infection or pest damage.',
+      solution: 'Apply neem oil or a copper-based fungicide. Remove affected leaves.',
+      preventiveTips: 'Water at the base, avoid wetting leaves. Space plants for airflow.',
+    };
+    return {
+      state: 'healthy' as PlantState,
+      cause: 'No issues detected.',
+      solution: 'Continue current care routine. Monitor weekly.',
+      preventiveTips: 'Maintain consistent watering and mulching.',
+    };
   };
 
   const openImagePicker = async (useCamera: boolean) => {
@@ -168,22 +233,24 @@ export default function FarmLinkPage() {
       setFeedbackGiven(false);
       setIsAnalyzing(true);
 
-      const formData = new FormData();
-      formData.append('userId', currentUser.id);
-      formData.append('plantName', plantName.trim());
-      formData.append('image', {
-        uri,
-        type: 'image/jpeg',
-        name: 'scan.jpg',
-      } as any);
-
       try {
-        const response = await axios.post(`${SCAN_API}/scan`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-        const { analysis } = response.data;
+        const analysis = await mockAnalyzePlant();
+        
+        const { error } = await supabase
+          .from('plant_scans')
+          .insert({
+            user_id: currentUser.id,
+            plant_name: plantName.trim(),
+            image_url: uri, 
+            analysis_result: analysis,
+            model_version: 'v1-mock',
+          });
+          
+        if (error) throw error;
+
         setAnalysisResult(analysis);
         await fetchUserScans(currentUser.id);
+        fetchCommunityScans();
       } catch (error) {
         Alert.alert('Error', 'Failed to analyze plant. Please try again.');
       } finally {
@@ -264,6 +331,9 @@ export default function FarmLinkPage() {
     if (status === 'Overgrowth') return '#a855f7';
     return '#6b7280';
   };
+
+  // Automatically redirect to the community page as the default home view
+  return <Redirect href="/community" />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>

@@ -85,6 +85,72 @@ const quickTips = [
   { id: 3, title: 'Soil pH testing', duration: '4 min', views: '6.2K' },
 ];
 
+function CourseCard({ course, index }: { course: typeof courses[0]; index: number }) {
+  const progressWidth = useSharedValue(0);
+  React.useEffect(() => {
+    progressWidth.value = withDelay(500, withTiming(course.progress, { duration: 1000 }));
+  }, [course.progress, progressWidth]);
+  const progressStyle = useAnimatedStyle(() => ({
+    width: `${progressWidth.value}%`,
+  }));
+
+  return (
+    <Animated.View
+      key={course.id}
+      entering={FadeIn.delay(200 + index * 50)}
+      style={styles.courseCard}
+    >
+      <GlassCard style={styles.courseGlass}>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => console.log('Open course', course.id)}
+        >
+          <View style={styles.courseRow}>
+            <LinearGradient
+              colors={course.color}
+              style={styles.courseIcon}
+            >
+              <Ionicons name={course.icon as any} size={28} color="white" />
+            </LinearGradient>
+            <View style={styles.courseInfo}>
+              <Text style={styles.courseTitle}>{course.title}</Text>
+              <Text style={styles.courseDesc} numberOfLines={1}>
+                {course.description}
+              </Text>
+              <View style={styles.courseMeta}>
+                <View style={styles.metaItem}>
+                  <Ionicons name="book-outline" size={12} color="#9ca3af" />
+                  <Text style={styles.metaText}>{course.lessons} lessons</Text>
+                </View>
+                <View style={styles.metaItem}>
+                  <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                  <Text style={styles.metaText}>{course.duration}</Text>
+                </View>
+                <View style={styles.metaItem}>
+                  <Ionicons name="star" size={12} color="#fbbf24" />
+                  <Text style={styles.metaText}>{course.rating}</Text>
+                </View>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+          </View>
+          {course.progress > 0 && (
+            <View style={styles.progressContainer}>
+              <View style={styles.progressHeaderRow}>
+                <Text style={styles.progressLabelText}>Progress</Text>
+                <Text style={styles.progressPercent}>{course.progress}%</Text>
+              </View>
+              <View style={styles.progressBarTrack}>
+                <Animated.View style={[styles.progressBarFill, progressStyle]} />
+              </View>
+            </View>
+          )}
+        </TouchableOpacity>
+      </GlassCard>
+    </Animated.View>
+  );
+}
+
 export default function LearnPage() {
   const [activeTab, setActiveTab] = useState<'courses' | 'tips'>('courses');
 
@@ -99,7 +165,7 @@ export default function LearnPage() {
     bgOpacity.value = withRepeat(withTiming(0.5, { duration: 10000 }), -1, true);
     bgScale2.value = withRepeat(withTiming(1, { duration: 10000 }), -1, true);
     bgOpacity2.value = withRepeat(withTiming(0.4, { duration: 10000 }), -1, true);
-  }, []);
+  }, [bgOpacity, bgOpacity2, bgScale, bgScale2]);
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }],
@@ -221,107 +287,44 @@ export default function LearnPage() {
             </TouchableOpacity>
           </View>
 
-          {/* Content */}
-          {activeTab === 'courses' ? (
-            <View style={styles.coursesGrid}>
-              {courses.map((course, index) => {
-                // Progress bar animation for this course
-                const progressWidth = useSharedValue(0);
-                React.useEffect(() => {
-                  progressWidth.value = withDelay(500, withTiming(course.progress, { duration: 1000 }));
-                }, []);
-                const progressStyle = useAnimatedStyle(() => ({
-                  width: `${progressWidth.value}%`,
-                }));
-
-                return (
-                  <Animated.View
-                    key={course.id}
-                    entering={FadeIn.delay(200 + index * 50)}
-                    style={styles.courseCard}
-                  >
-                    <GlassCard style={styles.courseGlass}>
-                      <TouchableOpacity
-                        activeOpacity={0.9}
-                        onPress={() => console.log('Open course', course.id)}
-                      >
-                        <View style={styles.courseRow}>
-                          <LinearGradient
-                            colors={course.color}
-                            style={styles.courseIcon}
-                          >
-                            <Ionicons name={course.icon as any} size={28} color="white" />
-                          </LinearGradient>
-                          <View style={styles.courseInfo}>
-                            <Text style={styles.courseTitle}>{course.title}</Text>
-                            <Text style={styles.courseDesc} numberOfLines={1}>
-                              {course.description}
-                            </Text>
-                            <View style={styles.courseMeta}>
-                              <View style={styles.metaItem}>
-                                <Ionicons name="book-outline" size={12} color="#9ca3af" />
-                                <Text style={styles.metaText}>{course.lessons} lessons</Text>
-                              </View>
-                              <View style={styles.metaItem}>
-                                <Ionicons name="time-outline" size={12} color="#9ca3af" />
-                                <Text style={styles.metaText}>{course.duration}</Text>
-                              </View>
-                              <View style={styles.metaItem}>
-                                <Ionicons name="star" size={12} color="#fbbf24" />
-                                <Text style={styles.metaText}>{course.rating}</Text>
-                              </View>
-                            </View>
-                          </View>
-                          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                        </View>
-                        {course.progress > 0 && (
-                          <View style={styles.progressContainer}>
-                            <View style={styles.progressHeaderRow}>
-                              <Text style={styles.progressLabelText}>Progress</Text>
-                              <Text style={styles.progressPercent}>{course.progress}%</Text>
-                            </View>
-                            <View style={styles.progressBarTrack}>
-                              <Animated.View style={[styles.progressBarFill, progressStyle]} />
-                            </View>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    </GlassCard>
-                  </Animated.View>
-                );
-              })}
-            </View>
-          ) : (
-            <View style={styles.tipsList}>
-              {quickTips.map((tip, index) => (
-                <Animated.View
-                  key={tip.id}
-                  entering={FadeIn.delay(200 + index * 50)}
-                  style={styles.tipCard}
-                >
-                  <GlassCard style={styles.tipGlass}>
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      onPress={() => console.log('Play tip', tip.id)}
-                      style={styles.tipRow}
-                    >
-                      <View style={styles.tipIcon}>
-                        <Ionicons name="play" size={20} color="#22c55e" />
-                      </View>
-                      <View style={styles.tipInfo}>
-                        <Text style={styles.tipTitle}>{tip.title}</Text>
-                        <View style={styles.tipMeta}>
-                          <Text style={styles.tipDuration}>{tip.duration}</Text>
-                          <Text style={styles.tipViews}>{tip.views} views</Text>
-                        </View>
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                    </TouchableOpacity>
-                  </GlassCard>
-                </Animated.View>
-              ))}
-            </View>
-          )}
+           {/* Content */}
+           {activeTab === 'courses' ? (
+             <View style={styles.coursesGrid}>
+               {courses.map((course, index) => (
+                 <CourseCard key={course.id} course={course} index={index} />
+               ))}
+             </View>
+           ) : (
+             <View style={styles.tipsList}>
+               {quickTips.map((tip, index) => (
+                 <Animated.View
+                   key={tip.id}
+                   entering={FadeIn.delay(200 + index * 50)}
+                   style={styles.tipCard}
+                 >
+                   <GlassCard style={styles.tipGlass}>
+                     <TouchableOpacity
+                       activeOpacity={0.9}
+                       onPress={() => console.log('Play tip', tip.id)}
+                       style={styles.tipRow}
+                     >
+                       <View style={styles.tipIcon}>
+                         <Ionicons name="play" size={20} color="#22c55e" />
+                       </View>
+                       <View style={styles.tipInfo}>
+                         <Text style={styles.tipTitle}>{tip.title}</Text>
+                         <View style={styles.tipMeta}>
+                           <Text style={styles.tipDuration}>{tip.duration}</Text>
+                           <Text style={styles.tipViews}>{tip.views} views</Text>
+                         </View>
+                       </View>
+                       <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                     </TouchableOpacity>
+                   </GlassCard>
+                 </Animated.View>
+               ))}
+             </View>
+           )}
         </ScrollView>
 
         <BottomNav />

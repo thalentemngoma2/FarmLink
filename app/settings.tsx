@@ -2,13 +2,13 @@ import { BottomNav } from '@/components/bottom-nav';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   ScrollView,
   Share,
   StyleSheet,
@@ -16,6 +16,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, {
   FadeIn,
   interpolateColor,
@@ -26,8 +27,8 @@ import Animated, {
   withSpring,
   withTiming
 } from 'react-native-reanimated';
+import { supabase } from '@/lib/supabase';
 
-const SETTINGS_API = 'http://192.168.8.143:3000'; // Replace with your IP
 
 // Define a proper type for setting items
 interface SettingItem {
@@ -74,8 +75,23 @@ export default function SettingsPage() {
   const fetchUserData = async () => {
     try {
       const userId = getUserId();
-      const res = await axios.get(`${SETTINGS_API}/user/${userId}`);
-      setProfile(res.data);
+      const { data: farmerData } = await supabase.from('profiles').select('*').eq('user_id', userId).maybeSingle();
+      if (farmerData) {
+        setProfile({ name: farmerData.full_name || user?.name || 'Farmer', email: user?.email || '', membership_type: 'Free', avatar: (farmerData.full_name || user?.name || 'F').charAt(0).toUpperCase() });
+      } else {
+        const { data: retailData } = await supabase.from('retail_profiles').select('*').eq('user_id', userId).maybeSingle();
+        if (retailData) {
+          setProfile({ name: retailData.store_name || user?.name || 'Retailer', email: user?.email || '', membership_type: 'Business', avatar: (retailData.store_name || user?.name || 'R').charAt(0).toUpperCase() });
+        } else {
+          // Fallback if database profile hasn't been created yet
+          setProfile({
+            name: user?.name || 'New User',
+            email: user?.email || '',
+            membership_type: 'Free',
+            avatar: (user?.name || 'U').charAt(0).toUpperCase()
+          });
+        }
+      }
     } catch (err) {
       console.error('Failed to fetch profile', err);
     }
@@ -83,9 +99,7 @@ export default function SettingsPage() {
 
   const fetchSettings = async () => {
     try {
-      const userId = getUserId();
-      const res = await axios.get(`${SETTINGS_API}/settings/${userId}`);
-      setSettings(res.data);
+      // Placeholder for fetching settings
     } catch (err) {
       console.error('Failed to fetch settings', err);
     } finally {
@@ -97,24 +111,28 @@ export default function SettingsPage() {
     if (!user) return;
     const newSettings = { ...settings, [key]: value };
     setSettings(newSettings); // optimistic update
-    try {
-      const userId = getUserId();
-      await axios.put(`${SETTINGS_API}/settings/${userId}`, newSettings);
-    } catch (err) {
-      Alert.alert('Error', 'Failed to save setting');
-      // revert
-      setSettings(settings);
-    }
   };
 
   const handleSignOut = async () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: async () => {
-        await logout();
+    const executeLogout = async () => {
+      try {
+        if (logout) await logout();
         router.replace('/login');
-      } },
-    ]);
+      } catch (error) {
+        console.error('Logout error', error);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to sign out?')) {
+        await executeLogout();
+      }
+    } else {
+      Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Out', style: 'destructive', onPress: executeLogout },
+      ]);
+    }
   };
 
   const handleShare = async () => {

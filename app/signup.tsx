@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -29,7 +29,8 @@ import Animated, {
 
 const userTypes = [
   { id: 'farmer', label: 'Farmer', description: 'I grow crops and raise livestock' },
-  { id: 'expert', label: 'Expert', description: 'I provide agricultural advice' },
+  { id: 'retailer', label: 'Retailer', description: 'I buy produce for my store or business' },
+  { id: 'extension_officer', label: 'Extension Officer', description: 'I provide agricultural advice and support' },
 ];
 
 export default function SignupPage() {
@@ -86,9 +87,7 @@ export default function SignupPage() {
 
     setIsLoading(true);
     try {
-      // Call the signup method from AuthContext
-      await signup(formData.email, formData.password, formData.fullName);
-      // After successful signup, redirect to OTP verification page with email
+      await signup(formData.email, formData.password, formData.fullName, formData.userType, formData.location);
       router.push(`/verify-otp?email=${encodeURIComponent(formData.email)}`);
     } catch (err: any) {
       setError(err.message || 'Signup failed. Please try again.');
@@ -97,7 +96,7 @@ export default function SignupPage() {
     }
   };
 
-  // Background animations (same as original)
+  // Background animations
   const bgScale1 = useSharedValue(1);
   const bgX1 = useSharedValue(0);
   const bgY1 = useSharedValue(0);
@@ -105,14 +104,14 @@ export default function SignupPage() {
   const bgX2 = useSharedValue(0);
   const bgY2 = useSharedValue(0);
 
-  React.useEffect(() => {
+  useEffect(() => {
     bgScale1.value = withRepeat(withTiming(1.3, { duration: 20000 }), -1, true);
     bgX1.value = withRepeat(withTiming(50, { duration: 20000 }), -1, true);
     bgY1.value = withRepeat(withTiming(-30, { duration: 20000 }), -1, true);
     bgScale2.value = withRepeat(withTiming(1, { duration: 25000 }), -1, true);
     bgX2.value = withRepeat(withTiming(-40, { duration: 25000 }), -1, true);
     bgY2.value = withRepeat(withTiming(40, { duration: 25000 }), -1, true);
-  }, []);
+  }, [bgScale1, bgScale2, bgX1, bgX2, bgY1, bgY2]);
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale1.value }, { translateX: bgX1.value }, { translateY: bgY1.value }],
@@ -187,7 +186,6 @@ export default function SignupPage() {
 
               {step === 1 ? (
                 <Animated.View entering={SlideInLeft} exiting={FadeOut} style={styles.stepContainer}>
-                  {/* Full Name */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Full Name *</Text>
                     <View style={styles.inputWrapper}>
@@ -202,7 +200,6 @@ export default function SignupPage() {
                     </View>
                   </View>
 
-                  {/* Email */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Email Address *</Text>
                     <View style={styles.inputWrapper}>
@@ -219,7 +216,6 @@ export default function SignupPage() {
                     </View>
                   </View>
 
-                  {/* Phone */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Phone Number</Text>
                     <View style={styles.inputWrapper}>
@@ -235,7 +231,6 @@ export default function SignupPage() {
                     </View>
                   </View>
 
-                  {/* Location */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Location</Text>
                     <View style={styles.inputWrapper}>
@@ -250,7 +245,6 @@ export default function SignupPage() {
                     </View>
                   </View>
 
-                  {/* User Type */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>I am a</Text>
                     <View style={styles.userTypesRow}>
@@ -279,7 +273,6 @@ export default function SignupPage() {
                 </Animated.View>
               ) : (
                 <Animated.View entering={SlideInRight} exiting={FadeOut} style={styles.stepContainer}>
-                  {/* Password */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Password *</Text>
                     <View style={styles.inputWrapper}>
@@ -299,7 +292,6 @@ export default function SignupPage() {
                     <Text style={styles.hintText}>Must be at least 8 characters</Text>
                   </View>
 
-                  {/* Confirm Password */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Confirm Password *</Text>
                     <View style={styles.inputWrapper}>
@@ -398,7 +390,7 @@ const styles = StyleSheet.create({
   input: { flex: 1, paddingVertical: 12, fontSize: 14, color: '#11181C' },
   eyeIcon: { padding: 4 },
   hintText: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
-  userTypesRow: { flexDirection: 'row', gap: 12 },
+  userTypesRow: { flexDirection: 'column', gap: 12 },
   userTypeCard: { flex: 1, borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)', borderRadius: 12, padding: 12, backgroundColor: 'rgba(255,255,255,0.5)' },
   userTypeCardActive: { borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)' },
   userTypeLabel: { fontSize: 14, fontWeight: '600', color: '#11181C', marginBottom: 2 },

@@ -70,7 +70,6 @@ function requireAuth(req, res, next) {
 app.use(authMiddleware);
 
 // ==================== COMMUNITY & POSTS ====================
-// GET /community-server/src/index → community scans (public) const url = `${SCAN_API}/community-server/src/index`
 app.get('/community-server/src/index', async (req, res) => {
   const { userId } = req.query;
   let query = supabase
@@ -95,7 +94,6 @@ app.get('/community-server/src/index', async (req, res) => {
   res.json(communityScans);
 });
 
-// GET /posting-server/src/index → posts list (public)
 app.get('/posting-server/src/index', async (req, res) => {
   const { category = 'All', limit = 20, sort = 'recent' } = req.query;
   let query = supabase
@@ -125,7 +123,6 @@ app.get('/posting-server/src/index', async (req, res) => {
   res.json(discussions);
 });
 
-// POST /posting-server/src/index → create a new post (auth required)
 app.post('/posting-server/src/index', requireAuth, async (req, res) => {
   const { title, preview, category, mediaUrls, mediaType } = req.body;
   if (!title || !preview) return res.status(400).json({ error: 'Missing title or preview' });
@@ -144,7 +141,6 @@ app.post('/posting-server/src/index', requireAuth, async (req, res) => {
   res.status(201).json({ success: true, post: data });
 });
 
-// GET /posting-server/src/index/:id/comments → get comments for a post (public)
 app.get('/posting-server/src/index/:id/comments', async (req, res) => {
   const { id } = req.params;
   const { data, error } = await supabase
@@ -175,7 +171,6 @@ app.get('/posting-server/src/index/:id/comments', async (req, res) => {
   res.json(comments);
 });
 
-// POST /community-server/src/index → add a comment (auth required)
 app.post('/community-server/src/index', requireAuth, async (req, res) => {
   const { postId, content, parentCommentId } = req.body;
   if (!postId || !content) return res.status(400).json({ error: 'Missing postId or content' });
@@ -195,7 +190,6 @@ app.post('/community-server/src/index', requireAuth, async (req, res) => {
   res.status(201).json({ success: true, comment: data });
 });
 
-// POST /posting-server/src/index/:id/like → toggle like on a post (auth required)
 app.post('/posting-server/src/index/:id/like', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { data: existing } = await supabase
@@ -215,14 +209,13 @@ app.post('/posting-server/src/index/:id/like', requireAuth, async (req, res) => 
 });
 
 // ==================== AUTHENTICATION ====================
-// We use separate paths for each auth action to avoid conflicts.
 app.post('/auth-server/src/index/signup', async (req, res) => {
-  const { email, password, name } = req.body;
+  const { email, password, name, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
   try {
     const { data, error } = await supabase.auth.signUp({
       email, password,
-      options: { data: { name: name || email.split('@')[0] } }
+      options: { data: { name: name || email.split('@')[0], role: role || 'farmer' } }
     });
     if (error) throw error;
     res.status(201).json({ message: 'Verification email sent', user: data.user });
@@ -373,7 +366,6 @@ app.post('/scan-server/src/index', requireAuth, upload.single('image'), async (r
   const { plantName } = req.body;
   if (!plantName || !req.file) return res.status(400).json({ error: 'Plant name and image required' });
   const imageUrl = await uploadFile(req.file.buffer, req.file.originalname, `scans/${req.user.id}`);
-  // Mock AI analysis
   const states = ['healthy', 'disease', 'undergrowth', 'overgrowth'];
   const analysis = {
     state: states[Math.floor(Math.random() * states.length)],
@@ -430,7 +422,327 @@ app.get('/trending', async (req, res) => {
   res.json(trending);
 });
 
+// ==================== TENDER MARKETPLACE ====================
+
+async function getUserRole(userId) {
+  const { data, error } = await supabase.from('users').select('role').eq('user_id', userId).single();
+  if (error || !data) return null;
+  return data.role;
+}
+
+app.get('/tenders', async (req, res) => {
+  const { category, status = 'open', search } = req.query;
+  let query = supabase
+    .from('tenders')
+    .select('*, retail_profiles:retailer_id(store_name, city), tender_requirements(*)')
+    .order('created_at', { ascending: false });
+  if (status) query = query.eq('status', status);
+  if (category) query = query.eq('product_category', category);
+  if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  const tenders = data.map(t => ({
+    id: t.tender_id,
+    title: t.title,
+    description: t.description,
+    productCategory: t.product_category,
+    quantityNeeded: t.quantity_needed,
+    budgetRange: t.budget_range,
+    deliveryLocation: t.delivery_location,
+    deliveryDate: t.delivery_date,
+    deadline: t.deadline,
+    status: t.status,
+    isPrivate: t.is_private,
+    retailerName: t.retail_profiles?.store_name || 'Unknown Retailer',
+    retailerCity: t.retail_profiles?.city || '',
+    requirements: (t.tender_requirements || []).map(r => ({
+      id: r.requirement_id,
+      productName: r.product_name,
+      quantity: r.quantity,
+      gradeQuality: r.grade_quality,
+    })),
+    createdAt: t.created_at,
+    timeAgo: formatRelativeTime(t.created_at),
+  }));
+  res.json(tenders);
+});
+
+app.get('/tenders/:id', async (req, res) => {
+  const { id } = req.params;
+  const { data, error } = await supabase
+    .from('tenders')
+    .select('*, retail_profiles:retailer_id(store_name, city, address, business_type), tender_requirements(*)')
+    .eq('tender_id', id)
+    .single();
+  if (error) return res.status(404).json({ error: 'Tender not found' });
+  const tender = {
+    id: data.tender_id,
+    title: data.title,
+    description: data.description,
+    productCategory: data.product_category,
+    quantityNeeded: data.quantity_needed,
+    budgetRange: data.budget_range,
+    deliveryLocation: data.delivery_location,
+    deliveryDate: data.delivery_date,
+    deadline: data.deadline,
+    status: data.status,
+    isPrivate: data.is_private,
+    retailer: {
+      name: data.retail_profiles?.store_name || 'Unknown',
+      city: data.retail_profiles?.city || '',
+      address: data.retail_profiles?.address || '',
+      businessType: data.retail_profiles?.business_type || '',
+    },
+    requirements: (data.tender_requirements || []).map(r => ({
+      id: r.requirement_id,
+      productName: r.product_name,
+      quantity: r.quantity,
+      gradeQuality: r.grade_quality,
+      notes: r.notes,
+    })),
+    createdAt: data.created_at,
+  };
+  res.json(tender);
+});
+
+app.post('/tenders', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  if (role !== 'retailer' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only retailers can post tenders' });
+  }
+  const {
+    title, description, productCategory, quantityNeeded, budgetRange,
+    deliveryLocation, deliveryDate, deadline, requirements
+  } = req.body;
+  if (!title || !description || !deadline) {
+    return res.status(400).json({ error: 'Title, description, and deadline are required' });
+  }
+  const { data: tender, error } = await supabase
+    .from('tenders')
+    .insert({
+      retailer_id: req.user.id,
+      title,
+      description,
+      product_category: productCategory,
+      quantity_needed: quantityNeeded,
+      budget_range: budgetRange,
+      delivery_location: deliveryLocation,
+      delivery_date: deliveryDate,
+      deadline,
+      status: 'open',
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  if (requirements && Array.isArray(requirements) && requirements.length > 0) {
+    const reqs = requirements.map(r => ({
+      tender_id: tender.tender_id,
+      product_name: r.productName,
+      quantity: r.quantity,
+      grade_quality: r.gradeQuality,
+      notes: r.notes,
+    }));
+    await supabase.from('tender_requirements').insert(reqs);
+  }
+
+  res.status(201).json({ success: true, tender });
+});
+
+app.put('/tenders/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const role = await getUserRole(req.user.id);
+  const { data: existing } = await supabase.from('tenders').select('retailer_id').eq('tender_id', id).single();
+  if (!existing) return res.status(404).json({ error: 'Tender not found' });
+  if (existing.retailer_id !== req.user.id && role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const updates = req.body;
+  const { error } = await supabase.from('tenders').update(updates).eq('tender_id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.get('/my-tenders', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  if (role !== 'retailer' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only retailers can view their tenders' });
+  }
+  const { data, error } = await supabase
+    .from('tenders')
+    .select('*, tender_applications(count)')
+    .eq('retailer_id', req.user.id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const tenders = data.map(t => ({
+    id: t.tender_id,
+    title: t.title,
+    status: t.status,
+    deadline: t.deadline,
+    applicationCount: t.tender_applications?.[0]?.count || 0,
+    createdAt: t.created_at,
+  }));
+  res.json(tenders);
+});
+
+app.post('/applications', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  if (role !== 'farmer' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only farmers can apply to tenders' });
+  }
+  const { tenderId, proposedPrice, message, deliveryCommitment } = req.body;
+  if (!tenderId) return res.status(400).json({ error: 'tenderId is required' });
+  const { data, error } = await supabase
+    .from('tender_applications')
+    .insert({
+      tender_id: tenderId,
+      farmer_id: req.user.id,
+      proposed_price: proposedPrice,
+      message,
+      delivery_commitment: deliveryCommitment,
+      status: 'pending',
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'You have already applied to this tender' });
+    return res.status(500).json({ error: error.message });
+  }
+  res.status(201).json({ success: true, application: data });
+});
+
+app.get('/applications', requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from('tender_applications')
+    .select('*, tenders:tender_id(title, retailer_id, status, deadline, retail_profiles:retailer_id(store_name))')
+    .eq('farmer_id', req.user.id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const applications = data.map(a => ({
+    id: a.application_id,
+    tenderId: a.tender_id,
+    tenderTitle: a.tenders?.title || '',
+    retailerName: a.tenders?.retail_profiles?.store_name || '',
+    proposedPrice: a.proposed_price,
+    message: a.message,
+    status: a.status,
+    createdAt: a.created_at,
+  }));
+  res.json(applications);
+});
+
+app.get('/tenders/:id/applications', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const role = await getUserRole(req.user.id);
+  const { data: tender } = await supabase.from('tenders').select('retailer_id').eq('tender_id', id).single();
+  if (!tender) return res.status(404).json({ error: 'Tender not found' });
+  if (tender.retailer_id !== req.user.id && role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized to view applications' });
+  }
+  const { data, error } = await supabase
+    .from('tender_applications')
+    .select('*, profiles:farmer_id(full_name, location, farm_type, bio)')
+    .eq('tender_id', id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const applications = data.map(a => ({
+    id: a.application_id,
+    farmerId: a.farmer_id,
+    farmerName: a.profiles?.full_name || 'Anonymous',
+    farmerLocation: a.profiles?.location || '',
+    farmType: a.profiles?.farm_type || '',
+    bio: a.profiles?.bio || '',
+    proposedPrice: a.proposed_price,
+    message: a.message,
+    deliveryCommitment: a.delivery_commitment,
+    status: a.status,
+    createdAt: a.created_at,
+  }));
+  res.json(applications);
+});
+
+app.put('/applications/:id/status', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  if (!['pending', 'shortlisted', 'accepted', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  const role = await getUserRole(req.user.id);
+  const { data: appData } = await supabase
+    .from('tender_applications')
+    .select('tender_id')
+    .eq('application_id', id)
+    .single();
+  if (!appData) return res.status(404).json({ error: 'Application not found' });
+  const { data: tender } = await supabase.from('tenders').select('retailer_id').eq('tender_id', appData.tender_id).single();
+  if (tender.retailer_id !== req.user.id && role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const { error } = await supabase.from('tender_applications').update({ status }).eq('application_id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.post('/tender-messages', requireAuth, async (req, res) => {
+  const { tenderId, receiverId, content } = req.body;
+  if (!tenderId || !receiverId || !content) {
+    return res.status(400).json({ error: 'tenderId, receiverId, and content are required' });
+  }
+  const { data: tender } = await supabase.from('tenders').select('retailer_id').eq('tender_id', tenderId).single();
+  const { data: application } = await supabase
+    .from('tender_applications')
+    .select('farmer_id')
+    .eq('tender_id', tenderId)
+    .eq('farmer_id', req.user.id)
+    .maybeSingle();
+  const isRetailer = tender && tender.retailer_id === req.user.id;
+  const isApplicant = application && application.farmer_id === req.user.id;
+  if (!isRetailer && !isApplicant) {
+    return res.status(403).json({ error: 'You are not a participant in this tender' });
+  }
+  const { data, error } = await supabase
+    .from('tender_messages')
+    .insert({
+      tender_id: tenderId,
+      sender_id: req.user.id,
+      receiver_id: receiverId,
+      content,
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ success: true, message: data });
+});
+
+app.get('/tender-messages/:tenderId', requireAuth, async (req, res) => {
+  const { tenderId } = req.params;
+  const { data: tender } = await supabase.from('tenders').select('retailer_id').eq('tender_id', tenderId).single();
+  const { data: application } = await supabase
+    .from('tender_applications')
+    .select('farmer_id')
+    .eq('tender_id', tenderId)
+    .eq('farmer_id', req.user.id)
+    .maybeSingle();
+  const isRetailer = tender && tender.retailer_id === req.user.id;
+  const isApplicant = application && application.farmer_id === req.user.id;
+  if (!isRetailer && !isApplicant) {
+    return res.status(403).json({ error: 'You are not a participant in this tender' });
+  }
+  const { data, error } = await supabase
+    .from('tender_messages')
+    .select('*')
+    .eq('tender_id', tenderId)
+    .or(`sender_id.eq.${req.user.id},receiver_id.eq.${req.user.id}`)
+    .order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 // ==================== START SERVER ====================
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`FarmLink main server running on port ${PORT}`);
 });
+ 

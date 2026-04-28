@@ -33,6 +33,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomNav } from '@/components/bottom-nav';
 import { MobileHeader } from '@/components/mobile-header';
 import { GlassCard } from '@/components/ui/glass-card';
+import { API_BASE } from './api';
 
 // Categories data (same as before)
 const categories = [
@@ -51,7 +52,7 @@ interface MediaItem {
 }
 
 // API endpoint – replace with your server IP/port
-const POSTING_API = 'http://192.168.8.143:3000';
+const POSTING_API = API_BASE;
 
 export default function AskPage() {
   const [description, setDescription] = useState('');

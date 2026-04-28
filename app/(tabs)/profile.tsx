@@ -1,18 +1,19 @@
 import { BottomNav } from '@/components/bottom-nav';
 import { MobileHeader } from '@/components/mobile-header';
 import { GlassCard } from '@/components/ui/glass-card';
-import { supabase } from '@/server/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,8 +32,6 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 
-const router = useRouter();
-
 // Types
 interface ProfileData {
   id: string;
@@ -46,6 +45,7 @@ interface ProfileData {
   questions_count: number;
   answers_count: number;
   likes_count: number;
+  isRetailer?: boolean;
 }
 
 interface Achievement {
@@ -70,34 +70,67 @@ const achievementsList = [
 ];
 
 export default function ProfilePage() {
+  const router = useRouter();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user, logout } = useAuth();
 
-  const navigation = useNavigation();
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
-  // For demo, use a fixed user ID. In real app, get from authentication.
-  const currentUserId = 'user_123'; // Replace with actual logged‑in user ID
+      try {
+        // Try to fetch farmer profile first
+        const { data: farmerData } = await supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle();
 
+        if (farmerData) {
+          setProfile({
+            id: farmerData.user_id,
+            name: farmerData.full_name || user.name || 'Farmer',
+            avatar: (farmerData.full_name || user.name || 'F').charAt(0).toUpperCase(),
+            location: farmerData.location || user.location || 'Location not set',
+            join_date: farmerData.created_at || user.createdAt || new Date().toISOString(),
+            farm_size: farmerData.farm_size || 'Not set',
+            main_crops: farmerData.main_crops || 'Not set',
+            farming_type: farmerData.farm_type || 'Not set',
+            questions_count: 0,
+            answers_count: 0,
+            likes_count: 0,
+            isRetailer: false,
+          });
+        } else {
+          // Try to fetch retail profile if farmer isn't found
+          const { data: retailData } = await supabase.from('retail_profiles').select('*').eq('user_id', user.id).maybeSingle();
+          if (retailData) {
+            setProfile({
+              id: retailData.user_id,
+              name: retailData.store_name || user.name || 'Retailer',
+              avatar: (retailData.store_name || user.name || 'R').charAt(0).toUpperCase(),
+              location: retailData.city || user.location || 'Location not set',
+              join_date: retailData.created_at || user.createdAt || new Date().toISOString(),
+              farm_size: 'N/A',
+              main_crops: 'N/A',
+              farming_type: retailData.business_type || 'Not set',
+              questions_count: 0,
+              answers_count: 0,
+              likes_count: 0,
+              isRetailer: true,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    if (error) throw error;
-    return data;
-  };
-
-  const fetchAchievements = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('user_achievements')
-      .select('achievement_id, earned_at')
-      .eq('user_id', userId);
-    if (error) throw error;
-    return data;
-  };
+    fetchProfile();
+  }, [user]);
 
   // Helper: check if an achievement is earned
   const isEarned = (achievementId: string) => {
@@ -105,28 +138,30 @@ export default function ProfilePage() {
   };
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AsyncStorage.multiRemove(['auth_token', 'user_data']);
-              // Use Expo Router's replace method to redirect and clear history
-              router.replace('/login');
-            } catch (error) {
-              console.error('Logout error', error);
-              Alert.alert('Error', 'Failed to log out. Please try again.');
-            }
-          },
-        },
-      ],
-      { cancelable: true }
-    );
+    const executeLogout = async () => {
+      try {
+        if (logout) await logout();
+        router.replace('/login');
+      } catch (error) {
+        console.error('Logout error', error);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to log out?')) {
+        await executeLogout();
+      }
+    } else {
+      Alert.alert(
+        'Log Out',
+        'Are you sure you want to log out?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log Out', style: 'destructive', onPress: executeLogout },
+        ],
+        { cancelable: true }
+      );
+    }
   };
 
   // Background animation (same as before)
@@ -140,7 +175,7 @@ export default function ProfilePage() {
     bgOpacity.value = withRepeat(withTiming(0.5, { duration: 10000 }), -1, true);
     bgScale2.value = withRepeat(withTiming(1, { duration: 10000 }), -1, true);
     bgOpacity2.value = withRepeat(withTiming(0.4, { duration: 10000 }), -1, true);
-  }, []);
+  }, [bgOpacity, bgOpacity2, bgScale, bgScale2]);
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }],
@@ -166,16 +201,17 @@ export default function ProfilePage() {
 
   // Fallback if profile not loaded
   const displayProfile = profile || {
-    name: 'User',
-    avatar: 'U',
-    location: 'Unknown',
-    join_date: new Date().toISOString(),
+    name: user?.name || 'New User',
+    avatar: (user?.name || 'U').charAt(0).toUpperCase(),
+    location: user?.location || 'Location not set',
+    join_date: user?.createdAt || new Date().toISOString(),
     farm_size: 'Not set',
     main_crops: 'Not set',
     farming_type: 'Not set',
     questions_count: 0,
     answers_count: 0,
     likes_count: 0,
+    isRetailer: user?.role === 'retailer',
   };
 
   const joinDate = new Date(displayProfile.join_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
@@ -297,24 +333,33 @@ export default function ProfilePage() {
           {/* Farm info – dynamic */}
           <Animated.View entering={FadeIn.delay(150)} style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="leaf-outline" size={18} color="#22c55e" />
-              <Text style={styles.sectionTitle}>My Farm</Text>
+              <Ionicons name={displayProfile.isRetailer ? "storefront-outline" : "leaf-outline"} size={18} color="#22c55e" />
+              <Text style={styles.sectionTitle}>{displayProfile.isRetailer ? 'My Business' : 'My Farm'}</Text>
             </View>
             <GlassCard style={styles.farmCard}>
-              <View style={styles.farmRow}>
-                <Text style={styles.farmLabel}>Farm Size</Text>
-                <Text style={styles.farmValue}>{displayProfile.farm_size || 'Not specified'}</Text>
-              </View>
-              <View style={styles.farmRow}>
-                <Text style={styles.farmLabel}>Main Crops</Text>
-                <Text style={styles.farmValue}>{displayProfile.main_crops || 'Not specified'}</Text>
-              </View>
-              <View style={styles.farmRow}>
-                <Text style={styles.farmLabel}>Farming Type</Text>
-                <Text style={styles.farmValue}>{displayProfile.farming_type || 'Not specified'}</Text>
-              </View>
+              {displayProfile.isRetailer ? (
+                <View style={styles.farmRow}>
+                  <Text style={styles.farmLabel}>Business Type</Text>
+                  <Text style={styles.farmValue}>{displayProfile.farming_type || 'Not specified'}</Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.farmRow}>
+                    <Text style={styles.farmLabel}>Farm Size</Text>
+                    <Text style={styles.farmValue}>{displayProfile.farm_size || 'Not specified'}</Text>
+                  </View>
+                  <View style={styles.farmRow}>
+                    <Text style={styles.farmLabel}>Main Crops</Text>
+                    <Text style={styles.farmValue}>{displayProfile.main_crops || 'Not specified'}</Text>
+                  </View>
+                  <View style={styles.farmRow}>
+                    <Text style={styles.farmLabel}>Farming Type</Text>
+                    <Text style={styles.farmValue}>{displayProfile.farming_type || 'Not specified'}</Text>
+                  </View>
+                </>
+              )}
               <TouchableOpacity style={styles.editFarmButton} activeOpacity={0.8}>
-                <Text style={styles.editFarmText}>Edit Farm Details</Text>
+                <Text style={styles.editFarmText}>Edit {displayProfile.isRetailer ? 'Business' : 'Farm'} Details</Text>
               </TouchableOpacity>
             </GlassCard>
           </Animated.View>
