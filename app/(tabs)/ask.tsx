@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Image,
@@ -13,11 +14,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import Animated, {
-  FadeIn,
-  FadeOut,
   interpolate,
   SlideInDown,
   useAnimatedStyle,
@@ -25,7 +24,7 @@ import Animated, {
   withRepeat,
   withTiming,
   ZoomIn,
-  ZoomOut,
+  ZoomOut
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -51,6 +50,9 @@ interface MediaItem {
   fileName?: string;
 }
 
+const MAX_MEDIA_ITEMS = 5;
+const MAX_DESCRIPTION_LENGTH = 500;
+
 export default function AskPage() {
   const { user } = useAuth();
   const [description, setDescription] = useState('');
@@ -59,11 +61,12 @@ export default function AskPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
+  const [uploadProgress, setUploadProgress] = useState(false);
 
   // Validate form
   const isValid = description.trim().length >= 20 && selectedCategory !== null;
 
-  // Animated background (unchanged)
+  // Animated background
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
   useEffect(() => {
@@ -77,18 +80,28 @@ export default function AskPage() {
   const { width, height } = Dimensions.get('window');
 
   // ---------------------------------------------------------------------------
-  // Helper: Upload a file to Supabase Storage
+  // Helper: Upload a file to Supabase Storage with progress simulation
   // ---------------------------------------------------------------------------
   const uploadFile = async (uri: string, type: 'image' | 'video', userId: string): Promise<string> => {
     const response = await fetch(uri);
     const blob = await response.blob();
+    // Validate file size (max 50MB for videos, 10MB for images)
+    if (type === 'video' && blob.size > 50 * 1024 * 1024) {
+      throw new Error('Video file is too large (max 50MB)');
+    }
+    if (type === 'image' && blob.size > 10 * 1024 * 1024) {
+      throw new Error('Image file is too large (max 10MB)');
+    }
     const fileExt = uri.split('.').pop() || (type === 'image' ? 'jpg' : 'mp4');
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
     const filePath = `posts/${userId}/${fileName}`;
 
     const { error } = await supabase.storage
       .from('farmlink')
-      .upload(filePath, blob, { contentType: type === 'image' ? 'image/jpeg' : 'video/mp4' });
+      .upload(filePath, blob, {
+        contentType: type === 'image' ? 'image/jpeg' : 'video/mp4',
+        cacheControl: '3600',
+      });
     if (error) throw error;
 
     const { data: publicUrl } = supabase.storage.from('farmlink').getPublicUrl(filePath);
@@ -96,7 +109,7 @@ export default function AskPage() {
   };
 
   // ---------------------------------------------------------------------------
-  // Submit post
+  // Submit post (no 'title' column)
   // ---------------------------------------------------------------------------
   const handleSubmit = async () => {
     if (!isValid) return;
@@ -106,31 +119,32 @@ export default function AskPage() {
     }
 
     setIsSubmitting(true);
+    setUploadProgress(true);
     try {
       // 1. Upload all media files
       const mediaUrls: string[] = [];
-      for (const item of mediaItems) {
+      for (let i = 0; i < mediaItems.length; i++) {
+        const item = mediaItems[i];
         try {
           const url = await uploadFile(item.uri, item.type, user.id);
           mediaUrls.push(url);
-        } catch (err) {
+        } catch (err: any) {
           console.error('Failed to upload media:', err);
+          Alert.alert('Upload Error', err.message || 'Failed to upload media. Please try again.');
+          // Stop submission if critical media fails? We'll continue but inform user.
         }
       }
 
       // 2. Insert post into 'posts' table
-      const { error } = await supabase
-        .from('posts')
-        .insert({
-          user_id: user.id,
-          title: description.slice(0, 100), // optional title from first 100 chars
-          preview: description.slice(0, 200),
-          category: selectedCategory,
-          media_urls: mediaUrls,
-          media_type: mediaUrls.length > 0 ? (mediaItems[0]?.type === 'image' ? 'image' : 'video') : null,
-          location: location.trim() || null,
-          created_at: new Date(),
-        });
+      const { error } = await supabase.from('posts').insert({
+        user_id: user.id,
+        preview: description.trim(),
+        category: selectedCategory,
+        media_urls: mediaUrls,
+        media_type: mediaUrls.length > 0 ? (mediaItems[0]?.type === 'image' ? 'image' : 'video') : null,
+        location: location.trim() || null,
+        created_at: new Date(),
+      });
 
       if (error) throw error;
 
@@ -143,36 +157,49 @@ export default function AskPage() {
         setLocation('');
         setMediaItems([]);
       }, 2000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Submit error:', error);
-      Alert.alert('Error', 'Failed to post your question. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to post your question. Please try again.');
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(false);
     }
   };
 
   // ---------------------------------------------------------------------------
-  // Media picker
+  // Media picker - FIXED with correct MediaTypeOptions
   // ---------------------------------------------------------------------------
   const pickMedia = async (mediaType: 'image' | 'video') => {
+    // Check if max items reached
+    if (mediaItems.length >= MAX_MEDIA_ITEMS) {
+      Alert.alert('Limit Reached', `You can only add up to ${MAX_MEDIA_ITEMS} media items.`);
+      return;
+    }
+
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Permission Required', `Please allow access to your ${mediaType}s.`);
       return;
     }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: mediaType === 'image' ? ImagePicker.MediaTypeOptions.Images : ImagePicker.MediaTypeOptions.Videos,
       allowsEditing: true,
       quality: 0.8,
       videoMaxDuration: 60,
     });
+
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      setMediaItems(prev => [...prev, {
-        uri: asset.uri,
-        type: mediaType,
-        fileName: asset.fileName ?? undefined,
-      }]);
+      // Additional validation for video duration (already limited to 60s by picker)
+      setMediaItems(prev => [
+        ...prev,
+        {
+          uri: asset.uri,
+          type: mediaType,
+          fileName: asset.fileName ?? undefined,
+        },
+      ]);
     }
   };
 
@@ -247,8 +274,12 @@ export default function AskPage() {
                 multiline
                 numberOfLines={5}
                 textAlignVertical="top"
+                maxLength={MAX_DESCRIPTION_LENGTH}
               />
-              <Text style={styles.charCount}>{description.length}/500 characters</Text>
+              <Text style={styles.charCount}>
+                {description.length}/{MAX_DESCRIPTION_LENGTH} characters
+                {description.trim().length < 20 && description.length > 0 && ' (minimum 20)'}
+              </Text>
             </GlassCard>
 
             {/* Categories */}
@@ -272,6 +303,9 @@ export default function AskPage() {
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+              {!selectedCategory && (
+                <Text style={styles.validationHint}>Please select a category</Text>
+              )}
             </GlassCard>
 
             {/* Location (optional) */}
@@ -294,14 +328,25 @@ export default function AskPage() {
               <View style={styles.labelRow}>
                 <Ionicons name="images-outline" size={16} color="#11181C" />
                 <Text style={styles.label}>Add Photos & Videos (Optional)</Text>
+                <Text style={styles.mediaLimitHint}>Max {MAX_MEDIA_ITEMS}</Text>
               </View>
               {renderMediaPreview()}
               <View style={styles.mediaButtons}>
-                <TouchableOpacity style={styles.mediaButton} onPress={() => pickMedia('image')} activeOpacity={0.7}>
+                <TouchableOpacity
+                  style={[styles.mediaButton, mediaItems.length >= MAX_MEDIA_ITEMS && styles.mediaButtonDisabled]}
+                  onPress={() => pickMedia('image')}
+                  activeOpacity={0.7}
+                  disabled={mediaItems.length >= MAX_MEDIA_ITEMS}
+                >
                   <Ionicons name="camera-outline" size={24} color="#22c55e" />
                   <Text style={styles.mediaButtonText}>Photo</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.mediaButton} onPress={() => pickMedia('video')} activeOpacity={0.7}>
+                <TouchableOpacity
+                  style={[styles.mediaButton, mediaItems.length >= MAX_MEDIA_ITEMS && styles.mediaButtonDisabled]}
+                  onPress={() => pickMedia('video')}
+                  activeOpacity={0.7}
+                  disabled={mediaItems.length >= MAX_MEDIA_ITEMS}
+                >
                   <Ionicons name="videocam-outline" size={24} color="#22c55e" />
                   <Text style={styles.mediaButtonText}>Video</Text>
                 </TouchableOpacity>
@@ -310,15 +355,18 @@ export default function AskPage() {
 
             {/* Submit button */}
             <TouchableOpacity
-              style={[styles.submitButton, !isValid && styles.submitButtonDisabled]}
+              style={[styles.submitButton, (!isValid || isSubmitting) && styles.submitButtonDisabled]}
               onPress={handleSubmit}
               disabled={!isValid || isSubmitting}
               activeOpacity={0.7}
             >
               {isSubmitting ? (
-                <Animated.View entering={FadeIn} exiting={FadeOut}>
-                  <Ionicons name="reload" size={20} color="#fff" />
-                </Animated.View>
+                <View style={styles.submitLoading}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.submitText}>
+                    {uploadProgress ? 'Uploading...' : 'Posting...'}
+                  </Text>
+                </View>
               ) : (
                 <>
                   <Ionicons name="send-outline" size={20} color="#fff" />
@@ -348,7 +396,6 @@ export default function AskPage() {
   );
 }
 
-// Styles (unchanged from your original file)
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
   container: { flex: 1, position: 'relative' },
@@ -361,7 +408,7 @@ const styles = StyleSheet.create({
   form: { paddingHorizontal: 16, gap: 16 },
   card: { padding: 16 },
   label: { fontSize: 14, fontWeight: '500', color: '#11181C', marginBottom: 8 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' },
   input: { fontSize: 14, color: '#11181C', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
   textarea: { minHeight: 100, textAlignVertical: 'top' },
   charCount: { fontSize: 12, color: '#9ca3af', marginTop: 4, textAlign: 'right' },
@@ -371,8 +418,10 @@ const styles = StyleSheet.create({
   categoryDot: { width: 8, height: 8, borderRadius: 4 },
   categoryText: { fontSize: 12, fontWeight: '500', color: '#687076' },
   categoryTextActive: { color: '#fff' },
+  validationHint: { fontSize: 12, color: '#ef4444', marginTop: 4 },
   mediaButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
   mediaButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, paddingVertical: 12, backgroundColor: 'rgba(156,163,175,0.05)' },
+  mediaButtonDisabled: { opacity: 0.5 },
   mediaButtonText: { fontSize: 14, color: '#22c55e', fontWeight: '500' },
   mediaPreviewScroll: { marginBottom: 12 },
   mediaPreviewItem: { position: 'relative', marginRight: 12 },
@@ -382,6 +431,8 @@ const styles = StyleSheet.create({
   submitButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 12, marginTop: 8, marginBottom: 24 },
   submitButtonDisabled: { backgroundColor: '#e5e7eb' },
   submitText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+  submitLoading: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  mediaLimitHint: { fontSize: 12, color: '#687076', marginLeft: 'auto' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalCard: { width: Dimensions.get('window').width * 0.8, backgroundColor: '#fff', borderRadius: 24, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 5 },
   modalContent: { alignItems: 'center', gap: 12 },

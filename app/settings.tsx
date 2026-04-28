@@ -52,7 +52,7 @@ interface SettingSection {
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const [profile, setProfile] = useState<{ name: string; email: string; membership_type: string; avatar?: string } | null>(null);
+  const [profile, setProfile] = useState<{ username: string; email: string; role?: string; avatar?: string } | null>(null);
   const [settings, setSettings] = useState({
     dark_mode: false,
     push_notifications: true,
@@ -62,23 +62,28 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   // ---------------------------------------------------------------------------
-  // Data fetching (direct Supabase)
+  // Data fetching (direct Supabase) – only if user is logged in
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (user) {
-      fetchProfile();
-      fetchSettings();
+    if (!user) {
+      setLoading(false);
+      return;
     }
+    Promise.all([fetchProfile(), fetchSettings()]).finally(() => setLoading(false));
   }, [user]);
 
   const fetchProfile = async () => {
     if (!user) return;
     const { data, error } = await supabase
-      .from('profiles')
-      .select('name, email, membership_type, avatar')
-      .eq('id', user.id)
-      .single();
-    if (!error && data) setProfile(data);
+      .from('users')
+      .select('username, email, role, avatar')
+      .eq('user_id', user.id)
+      .maybeSingle();            // ✅ use maybeSingle to avoid 406 when row missing
+    if (!error && data) {
+      setProfile({ ...data, avatar: data.avatar || data.username?.[0]?.toUpperCase() || 'U' });
+    } else if (error) {
+      console.error('Profile fetch error', error);
+    }
   };
 
   const fetchSettings = async () => {
@@ -87,9 +92,12 @@ export default function SettingsPage() {
       .from('user_settings')
       .select('dark_mode, push_notifications, offline_mode, language')
       .eq('user_id', user.id)
-      .single();
-    if (!error && data) setSettings(data);
-    setLoading(false);
+      .maybeSingle();            // ✅ may not exist yet
+    if (!error && data) {
+      setSettings(data);
+    } else if (error && error.code !== 'PGRST116') {
+      console.error(error);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -104,7 +112,10 @@ export default function SettingsPage() {
       .from('user_settings')
       .upsert({
         user_id: user.id,
-        ...newSettings,
+        dark_mode: newSettings.dark_mode,
+        push_notifications: newSettings.push_notifications,
+        offline_mode: newSettings.offline_mode,
+        language: newSettings.language,
         updated_at: new Date(),
       }, { onConflict: 'user_id' });
 
@@ -115,7 +126,7 @@ export default function SettingsPage() {
         .from('user_settings')
         .select('dark_mode, push_notifications, offline_mode, language')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
       if (data) setSettings(data);
     }
   };
@@ -253,9 +264,9 @@ export default function SettingsPage() {
   };
 
   // ---------------------------------------------------------------------------
-  // Loading & error states
+  // Loading & login prompt
   // ---------------------------------------------------------------------------
-  if (loading || !profile) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#22c55e" />
@@ -263,8 +274,67 @@ export default function SettingsPage() {
     );
   }
 
+  // If user is not logged in, show a login prompt instead of empty loading
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient colors={['#f0fdf4', '#ffffff', '#ecfdf5']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+        <Animated.View style={[styles.blob, styles.blob1, bgBlob1Style]} />
+        <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
+
+        <Animated.View entering={FadeIn} style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
+            <Ionicons name="arrow-back" size={20} color="#11181C" />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Ionicons name="settings-outline" size={20} color="#22c55e" />
+            <Text style={styles.headerTitle}>Settings</Text>
+          </View>
+          <View style={styles.headerPlaceholder} />
+        </Animated.View>
+
+        <View style={styles.notLoggedInContainer}>
+          <Ionicons name="lock-closed-outline" size={48} color="#9ca3af" />
+          <Text style={styles.notLoggedInTitle}>Not Signed In</Text>
+          <Text style={styles.notLoggedInText}>Please log in to access your settings and preferences.</Text>
+          <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
+            <Text style={styles.loginButtonText}>Go to Login</Text>
+          </TouchableOpacity>
+        </View>
+        <BottomNav />
+      </View>
+    );
+  }
+
+  // If user exists but profile is missing (should not happen, but fallback)
+  if (!profile) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient colors={['#f0fdf4', '#ffffff', '#ecfdf5']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+        <Animated.View style={[styles.blob, styles.blob1, bgBlob1Style]} />
+        <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
+
+        <Animated.View entering={FadeIn} style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
+            <Ionicons name="arrow-back" size={20} color="#11181C" />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Ionicons name="settings-outline" size={20} color="#22c55e" />
+            <Text style={styles.headerTitle}>Settings</Text>
+          </View>
+          <View style={styles.headerPlaceholder} />
+        </Animated.View>
+        <View style={styles.notLoggedInContainer}>
+          <ActivityIndicator size="large" color="#22c55e" />
+          <Text style={styles.notLoggedInTitle}>Loading profile...</Text>
+        </View>
+        <BottomNav />
+      </View>
+    );
+  }
+
   // ---------------------------------------------------------------------------
-  // Main render
+  // Main render (user is logged in and profile exists)
   // ---------------------------------------------------------------------------
   return (
     <View style={styles.container}>
@@ -290,13 +360,13 @@ export default function SettingsPage() {
               <TouchableOpacity style={styles.userCardContent}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>
-                    {profile.avatar || profile.name?.charAt(0).toUpperCase() || 'U'}
+                    {profile.avatar || profile.username?.charAt(0).toUpperCase() || 'U'}
                   </Text>
                 </View>
                 <View style={styles.userInfo}>
-                  <Text style={styles.userName}>{profile.name}</Text>
+                  <Text style={styles.userName}>{profile.username}</Text>
                   <Text style={styles.userEmail}>{profile.email}</Text>
-                  <Text style={styles.userBadge}>{profile.membership_type || 'Free'} Member</Text>
+                  <Text style={styles.userBadge}>{profile.role || 'Farmer'} Member</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
               </TouchableOpacity>
@@ -368,7 +438,7 @@ export default function SettingsPage() {
 }
 
 // -----------------------------------------------------------------------------
-// Styles (unchanged from your original)
+// Styles (same as original, no changes needed)
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
@@ -419,4 +489,9 @@ const styles = StyleSheet.create({
   versionContainer: { alignItems: 'center', marginTop: 32, marginBottom: 16 },
   versionText: { fontSize: 12, color: '#9ca3af' },
   versionSubtext: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
+  notLoggedInContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, marginTop: -50 },
+  notLoggedInTitle: { fontSize: 20, fontWeight: '600', color: '#11181C', marginTop: 16, marginBottom: 8 },
+  notLoggedInText: { fontSize: 14, color: '#687076', textAlign: 'center', marginBottom: 24 },
+  loginButton: { backgroundColor: '#22c55e', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 },
+  loginButtonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
 });

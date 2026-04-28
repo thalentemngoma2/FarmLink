@@ -1,5 +1,5 @@
+// app/(tabs)/profile.tsx
 import { BottomNav } from '@/components/bottom-nav';
-import { MobileHeader } from '@/components/mobile-header';
 import { GlassCard } from '@/components/ui/glass-card';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,7 +19,6 @@ import {
 } from 'react-native';
 import Animated, {
   FadeIn,
-  interpolate,
   SlideInDown,
   useAnimatedStyle,
   useSharedValue,
@@ -28,19 +27,22 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Types
-interface ProfileData {
-  id: string;
-  name: string;
-  avatar: string;
-  location: string;
-  join_date: string;
-  farm_size: string;
-  main_crops: string;
-  farming_type: string;
+// -----------------------------------------------------------------------------
+// Types (based on public.users table only)
+// -----------------------------------------------------------------------------
+interface UserData {
+  user_id: string;
+  username: string;
+  email: string;
+  phone_number: string | null;
+  role: string;
+  created_at: string;
+}
+
+interface UserStats {
   questions_count: number;
   answers_count: number;
-  likes_count: number;
+  likes_count: number;      // likes received on user's posts
 }
 
 interface Achievement {
@@ -48,7 +50,7 @@ interface Achievement {
   earned_at: string;
 }
 
-// Static menu items (navigation)
+// Static menu items
 const menuItems = [
   { icon: 'notifications-outline', label: 'Notifications', route: '/notifications', badge: 3 },
   { icon: 'settings-outline', label: 'Settings', route: '/settings' },
@@ -56,7 +58,6 @@ const menuItems = [
   { icon: 'log-out-outline', label: 'Log Out', danger: true },
 ];
 
-// Achievements list (static labels, earned status from API)
 const achievementsList = [
   { id: 'first_question', icon: 'chatbubble-outline', label: 'First Question' },
   { id: 'helpful_answer', icon: 'heart-outline', label: 'Helpful Answer' },
@@ -66,60 +67,130 @@ const achievementsList = [
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [stats, setStats] = useState<UserStats>({ questions_count: 0, answers_count: 0, likes_count: 0 });
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Get current authenticated user
-  const [userId, setUserId] = useState<string | null>(null);
-
+  // ---------------------------------------------------------------------------
+  // Load user & stats (with auto‑creation of missing user)
+  // ---------------------------------------------------------------------------
   useEffect(() => {
-    const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserId(user.id);
-        await Promise.all([fetchProfile(user.id), fetchAchievements(user.id)]);
-      } else {
-        // Not logged in – redirect to login
-        router.replace('/login');
+    const loadUserAndData = async () => {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          router.replace('/login');
+          return;
+        }
+
+        // Try to fetch from users – use maybeSingle() to avoid 406 error when no row
+        let { data: userInfo, error: userError } = await supabase
+          .from('users')
+          .select('user_id, username, email, phone_number, role, created_at')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        // If not found, create a minimal entry
+        if (!userInfo) {
+          const newUser = {
+            user_id: user.id,
+            username: user.email?.split('@')[0] || 'Farmer',
+            email: user.email!,
+            role: 'farmer',
+            created_at: new Date().toISOString(),
+            // If your table has an 'updated_at' column, include it:
+            // updated_at: new Date().toISOString(),
+          };
+          const { data: inserted, error: insertError } = await supabase
+            .from('users')
+            .insert(newUser)
+            .select('user_id, username, email, phone_number, role, created_at')
+            .single();
+
+          if (insertError) {
+            console.error('Failed to create user record', insertError);
+            throw new Error('Could not create profile');
+          }
+          userInfo = inserted;
+        } else if (userError) {
+          // Some other error occurred (e.g., network)
+          console.error('User fetch error', userError);
+          throw new Error('Could not load profile');
+        }
+
+        setUserData(userInfo);
+        await fetchUserStats(user.id);
+        await fetchAchievements(user.id);
+      } catch (err) {
+        console.error('Profile loading error', err);
+        Alert.alert('Error', 'Failed to load profile');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
-    getCurrentUser();
+
+    loadUserAndData();
   }, []);
 
-  const fetchProfile = async (uid: string) => {
+  const fetchUserStats = async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', uid)
-        .single();
-      if (error) throw error;
-      setProfile(data);
-    } catch (err: any) {
-      console.error('Failed to fetch profile', err);
-      setError(err.message);
+      // questions count
+      const { count: questionsCount, error: qErr } = await supabase
+        .from('posts')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId);
+      if (qErr) console.warn('Questions count error', qErr);
+
+      // answers count
+      const { count: answersCount, error: aErr } = await supabase
+        .from('comments')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId);
+      if (aErr) console.warn('Answers count error', aErr);
+
+      // likes received: sum of post_likes where posts.user_id = userId
+      let likesReceived = 0;
+      const { data: userPosts, error: postsErr } = await supabase
+        .from('posts')
+        .select('id')
+        .eq('user_id', userId);
+      if (!postsErr && userPosts && userPosts.length > 0) {
+        const postIds = userPosts.map(p => p.id);
+        const { count: likedCount, error: likeErr } = await supabase
+          .from('post_likes')
+          .select('id', { count: 'exact', head: true })
+          .in('post_id', postIds);
+        if (!likeErr) likesReceived = likedCount || 0;
+      }
+
+      setStats({
+        questions_count: questionsCount || 0,
+        answers_count: answersCount || 0,
+        likes_count: likesReceived,
+      });
+    } catch (err) {
+      console.error('Failed to fetch user stats', err);
     }
   };
 
-  const fetchAchievements = async (uid: string) => {
+  const fetchAchievements = async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from('user_achievements')
         .select('achievement_id, earned_at')
-        .eq('user_id', uid);
-      if (error) throw error;
-      setAchievements(data || []);
-    } catch (err: any) {
-      console.error('Failed to fetch achievements', err);
+        .eq('user_id', userId);
+      if (error && error.code !== '42P01') {
+        console.warn('Achievements error', error);
+      } else if (data) {
+        setAchievements(data);
+      }
+    } catch (err) {
+      console.error('Achievements fetch error', err);
     }
   };
 
-  const isEarned = (achievementId: string) => {
-    return achievements.some(a => a.achievement_id === achievementId);
-  };
+  const isEarned = (id: string) => achievements.some(a => a.achievement_id === id);
 
   const handleLogout = async () => {
     Alert.alert(
@@ -135,12 +206,13 @@ export default function ProfilePage() {
             router.replace('/login');
           },
         },
-      ],
-      { cancelable: true }
+      ]
     );
   };
 
+  // ---------------------------------------------------------------------------
   // Background animations
+  // ---------------------------------------------------------------------------
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
   const bgScale2 = useSharedValue(1.2);
@@ -155,12 +227,11 @@ export default function ProfilePage() {
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }],
-    opacity: interpolate(bgOpacity.value, [0.3, 0.5], [0.3, 0.5]),
+    opacity: bgOpacity.value,
   }));
-
   const bgBlob2Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale2.value }],
-    opacity: interpolate(bgOpacity2.value, [0.2, 0.4], [0.2, 0.4]),
+    opacity: bgOpacity2.value,
   }));
 
   const { width, height } = Dimensions.get('window');
@@ -175,12 +246,12 @@ export default function ProfilePage() {
     );
   }
 
-  if (error || !profile) {
+  if (!userData) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
-          <Text style={styles.errorText}>{error || 'Profile not found'}</Text>
+          <Text style={styles.errorText}>Unable to load profile.</Text>
           <TouchableOpacity onPress={() => router.replace('/login')} style={styles.errorButton}>
             <Text style={styles.errorButtonText}>Go to Login</Text>
           </TouchableOpacity>
@@ -189,15 +260,9 @@ export default function ProfilePage() {
     );
   }
 
-  const joinDate = new Date(profile.join_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
-
-  const navigateToEditProfile = () => {
-    router.push('../edit-profile');
-  };
-
-  const navigateToEditFarm = () => {
-    router.push('../edit-farm');
-  };
+  const joinDate = userData.created_at
+    ? new Date(userData.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+    : 'Recently';
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -219,29 +284,38 @@ export default function ProfilePage() {
           <BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} />
         </Animated.View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <MobileHeader />
+        {/* Header with back button */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#11181C" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={{ width: 40 }} />
+        </View>
 
-          {/* Profile header */}
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <Animated.View entering={SlideInDown.duration(500)} style={styles.section}>
             <GlassCard style={styles.profileCard}>
               <View style={styles.profileRow}>
                 <View style={styles.avatarContainer}>
                   <LinearGradient colors={['#22c55e', '#16a34a']} style={styles.avatarGradient}>
                     <Text style={styles.avatarText}>
-                      {profile.avatar || profile.name.charAt(0).toUpperCase()}
+                      {userData.username?.[0]?.toUpperCase() || 'F'}
                     </Text>
                   </LinearGradient>
-                  <TouchableOpacity style={styles.editAvatar} onPress={navigateToEditProfile} activeOpacity={0.7}>
-                    <Ionicons name="pencil" size={14} color="#22c55e" />
-                  </TouchableOpacity>
                 </View>
                 <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>{profile.name}</Text>
+                  <Text style={styles.profileName}>{userData.username}</Text>
                   <View style={styles.infoRow}>
-                    <Ionicons name="location-outline" size={12} color="#9ca3af" />
-                    <Text style={styles.infoText}>{profile.location || 'Location not set'}</Text>
+                    <Ionicons name="mail-outline" size={12} color="#9ca3af" />
+                    <Text style={styles.infoText}>{userData.email}</Text>
                   </View>
+                  {userData.phone_number && (
+                    <View style={styles.infoRow}>
+                      <Ionicons name="call-outline" size={12} color="#9ca3af" />
+                      <Text style={styles.infoText}>{userData.phone_number}</Text>
+                    </View>
+                  )}
                   <View style={styles.infoRow}>
                     <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
                     <Text style={styles.infoText}>Joined {joinDate}</Text>
@@ -251,24 +325,24 @@ export default function ProfilePage() {
 
               <View style={styles.statsContainer}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{profile.questions_count || 0}</Text>
+                  <Text style={styles.statNumber}>{stats.questions_count}</Text>
                   <Text style={styles.statLabel}>Questions</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{profile.answers_count || 0}</Text>
+                  <Text style={styles.statNumber}>{stats.answers_count}</Text>
                   <Text style={styles.statLabel}>Answers</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{profile.likes_count || 0}</Text>
-                  <Text style={styles.statLabel}>Likes</Text>
+                  <Text style={styles.statNumber}>{stats.likes_count}</Text>
+                  <Text style={styles.statLabel}>Likes Received</Text>
                 </View>
               </View>
             </GlassCard>
           </Animated.View>
 
-          {/* Achievements */}
+          {/* Achievements (optional) */}
           <Animated.View entering={FadeIn.delay(100)} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="trophy-outline" size={18} color="#22c55e" />
@@ -311,7 +385,7 @@ export default function ProfilePage() {
             </GlassCard>
           </Animated.View>
 
-          {/* Farm info */}
+          {/* Farm info (placeholder) */}
           <Animated.View entering={FadeIn.delay(150)} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="leaf-outline" size={18} color="#22c55e" />
@@ -319,24 +393,20 @@ export default function ProfilePage() {
             </View>
             <GlassCard style={styles.farmCard}>
               <View style={styles.farmRow}>
+                <Text style={styles.farmLabel}>Role</Text>
+                <Text style={styles.farmValue}>{userData.role || 'Farmer'}</Text>
+              </View>
+              <View style={styles.farmRow}>
                 <Text style={styles.farmLabel}>Farm Size</Text>
-                <Text style={styles.farmValue}>{profile.farm_size || 'Not specified'}</Text>
+                <Text style={styles.farmValue}>Not specified</Text>
               </View>
               <View style={styles.farmRow}>
                 <Text style={styles.farmLabel}>Main Crops</Text>
-                <Text style={styles.farmValue}>{profile.main_crops || 'Not specified'}</Text>
+                <Text style={styles.farmValue}>Not specified</Text>
               </View>
-              <View style={styles.farmRow}>
-                <Text style={styles.farmLabel}>Farming Type</Text>
-                <Text style={styles.farmValue}>{profile.farming_type || 'Not specified'}</Text>
-              </View>
-              <TouchableOpacity style={styles.editFarmButton} onPress={navigateToEditFarm} activeOpacity={0.8}>
-                <Text style={styles.editFarmText}>Edit Farm Details</Text>
-              </TouchableOpacity>
             </GlassCard>
           </Animated.View>
 
-          {/* Menu items */}
           <Animated.View entering={FadeIn.delay(200)} style={styles.section}>
             <GlassCard style={styles.menuCard}>
               {menuItems.map((item, idx) => (
@@ -349,14 +419,18 @@ export default function ProfilePage() {
                       handleLogout();
                     } else if (item.route) {
                       router.push(item.route as any);
-                    } else {
-                      console.log(item.label);
                     }
                   }}
                 >
                   <View style={styles.menuLeft}>
-                    <Ionicons name={item.icon as any} size={20} color={item.danger ? '#ef4444' : '#9ca3af'} />
-                    <Text style={[styles.menuLabel, item.danger && styles.menuLabelDanger]}>{item.label}</Text>
+                    <Ionicons
+                      name={item.icon as any}
+                      size={20}
+                      color={item.danger ? '#ef4444' : '#9ca3af'}
+                    />
+                    <Text style={[styles.menuLabel, item.danger && styles.menuLabelDanger]}>
+                      {item.label}
+                    </Text>
                   </View>
                   <View style={styles.menuRight}>
                     {item.badge && (
@@ -380,10 +454,22 @@ export default function ProfilePage() {
   );
 }
 
+// Styles (unchanged)
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
   container: { flex: 1, position: 'relative' },
-  scrollContent: { flexGrow: 1, paddingBottom: 80, paddingTop: 120 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    backgroundColor: 'transparent',
+  },
+  backButton: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: '#11181C' },
+  scrollContent: { flexGrow: 1, paddingBottom: 80, paddingTop: 0 },
   bgBlob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)', overflow: 'hidden' },
   section: { paddingHorizontal: 16, marginBottom: 16 },
   profileCard: { padding: 16 },
@@ -391,27 +477,18 @@ const styles = StyleSheet.create({
   avatarContainer: { position: 'relative' },
   avatarGradient: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 32, fontWeight: 'bold', color: 'white' },
-  editAvatar: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'white',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
   profileInfo: { flex: 1 },
   profileName: { fontSize: 18, fontWeight: 'bold', color: '#11181C', marginBottom: 4 },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   infoText: { fontSize: 12, color: '#9ca3af' },
-  statsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
   statItem: { alignItems: 'center' },
   statNumber: { fontSize: 20, fontWeight: 'bold', color: '#11181C' },
   statLabel: { fontSize: 10, color: '#9ca3af', marginTop: 2 },
@@ -431,10 +508,16 @@ const styles = StyleSheet.create({
   farmRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   farmLabel: { fontSize: 14, color: '#687076' },
   farmValue: { fontSize: 14, fontWeight: '500', color: '#11181C' },
-  editFarmButton: { marginTop: 8, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(34,197,94,0.1)', alignItems: 'center' },
-  editFarmText: { fontSize: 14, fontWeight: '500', color: '#22c55e' },
   menuCard: { overflow: 'hidden' },
-  menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
+  menuItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
   menuItemLast: { borderBottomWidth: 0 },
   menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   menuLabel: { fontSize: 14, color: '#11181C' },

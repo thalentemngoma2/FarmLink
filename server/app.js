@@ -77,6 +77,26 @@ async function analyzePlant() {
   return { state, ...analysis[state] };
 }
 
+// Mock AI outbreak verification (returns verdict + reason)
+async function verifyOutbreakMedia(mediaUrls, userLocation) {
+  // Simulate processing
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  // For demo, always pass (you can add a random failure for testing)
+  const random = Math.random();
+  if (random > 0.8) {
+    return {
+      status: 'rejected',
+      confidence: 0.3,
+      reason: 'Media does not match outbreak symptoms or appears edited.'
+    };
+  }
+  return {
+    status: 'verified',
+    confidence: 0.95,
+    reason: 'All checks passed – media authentic and location consistent.'
+  };
+}
+
 // -------------------- Authentication Middleware --------------------
 async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -689,6 +709,188 @@ app.get('/scan-server/src/index', requireAuth, async (req, res) => {
   const { data, error } = await supabase.from('plant_scans').select('*').eq('user_id', req.user.id).order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+
+// ==================== OUTBREAK REPORTING (NEW) ====================
+// Submit an outbreak report (with media)
+app.post('/outbreak/report', requireAuth, upload.array('media', 5), async (req, res) => {
+  const { animalType, diseaseName, description, location } = req.body;
+  const files = req.files || [];
+  if (!animalType || !location) {
+    return res.status(400).json({ error: 'Animal type and location are required' });
+  }
+  if (files.length === 0) {
+    return res.status(400).json({ error: 'At least one photo/video is required' });
+  }
+
+  try {
+    // 1. Insert report
+    const { data: report, error: reportError } = await supabase
+      .from('outbreak_reports')
+      .insert({
+        user_id: req.user.id,
+        animal_type: animalType,
+        disease_name: diseaseName || null,
+        description: description || null,
+        location: location, // expects "POINT(lng lat)" string
+        status: 'pending',
+        created_at: new Date()
+      })
+      .select()
+      .single();
+    if (reportError) throw reportError;
+
+    // 2. Upload media to storage and insert records
+    const mediaUrls = [];
+    for (const file of files) {
+      const fileName = `${report.id}/${Date.now()}_${file.originalname}`;
+      const { error: uploadError } = await supabase.storage
+        .from('outbreak-media')
+        .upload(fileName, file.buffer, { contentType: file.mimetype });
+      if (uploadError) throw uploadError;
+      const { data: publicUrl } = supabase.storage.from('outbreak-media').getPublicUrl(fileName);
+      mediaUrls.push(publicUrl.publicUrl);
+    }
+    const mediaInserts = mediaUrls.map(url => ({
+      report_id: report.id,
+      media_url: url,
+      media_type: url.match(/\.mp4$/i) ? 'video' : 'image',
+      created_at: new Date()
+    }));
+    const { error: mediaError } = await supabase.from('outbreak_media').insert(mediaInserts);
+    if (mediaError) throw mediaError;
+
+    // 3. Run AI verification (mock)
+    const verification = await verifyOutbreakMedia(mediaUrls, location);
+
+    // 4. Update report with verification result
+    const { error: updateError } = await supabase
+      .from('outbreak_reports')
+      .update({
+        status: verification.status,
+        ai_confidence_score: verification.confidence,
+        verification_reason: verification.reason,
+        updated_at: new Date()
+      })
+      .eq('id', report.id);
+    if (updateError) throw updateError;
+
+    // 5. If verified, notify relevant farmers (by animal type)
+    if (verification.status === 'verified') {
+      // Get farmers who farm this animal type
+      const { data: farmers } = await supabase
+        .from('user_farming_types')
+        .select('user_id')
+        .contains('animal_types', [animalType]);
+      if (farmers && farmers.length) {
+        const notifications = farmers.map(f => ({
+          user_id: f.user_id,
+          type: 'outbreak_alert',
+          title: `⚠️ ${animalType.toUpperCase()} Disease Alert`,
+          message: `A ${diseaseName || 'disease'} outbreak has been verified near ${location}.`,
+          action_url: `/outbreak/${report.id}`,
+          created_at: new Date(),
+          read: false,
+        }));
+        await supabase.from('notifications').insert(notifications);
+      }
+    }
+
+    // 6. Return result with card message
+    let cardMessage = '';
+    let cardType = '';
+    if (verification.status === 'verified') {
+      cardMessage = `✅ Report verified! The outbreak has been confirmed and relevant farmers have been notified.`;
+      cardType = 'success';
+    } else {
+      cardMessage = `❌ Report rejected: ${verification.reason}. Please review and resubmit if this was a genuine outbreak.`;
+      cardType = 'error';
+    }
+
+    res.status(201).json({
+      success: true,
+      reportId: report.id,
+      verificationStatus: verification.status,
+      card: { message: cardMessage, type: cardType }
+    });
+  } catch (err) {
+    console.error('Outbreak report error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get a user's outbreak reports (with verification status)
+app.get('/outbreak/reports/:userId', requireAuth, async (req, res) => {
+  const { userId } = req.params;
+  if (req.user.id !== userId) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const { data, error } = await supabase
+      .from('outbreak_reports')
+      .select('*, outbreak_media(media_url, media_type)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get a single outbreak report details (for heat map or details view)
+app.get('/outbreak/report/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data, error } = await supabase
+      .from('outbreak_reports')
+      .select('*, outbreak_media(media_url, media_type)')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all verified outbreaks (for heat map)
+app.get('/outbreak/verified', async (req, res) => {
+  const { limit = 100 } = req.query;
+  try {
+    const { data, error } = await supabase
+      .from('outbreak_reports')
+      .select('id, animal_type, disease_name, location, created_at, ai_confidence_score')
+      .eq('status', 'verified')
+      .order('created_at', { ascending: false })
+      .limit(parseInt(limit));
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint to get verification card for a specific report
+app.get('/outbreak/verification/:reportId', async (req, res) => {
+  const { reportId } = req.params;
+  try {
+    const { data, error } = await supabase
+      .from('outbreak_reports')
+      .select('status, verification_reason, ai_confidence_score')
+      .eq('id', reportId)
+      .single();
+    if (error) throw error;
+    let cardMessage = '';
+    if (data.status === 'verified') {
+      cardMessage = `✅ Report verified! Confidence: ${Math.round(data.ai_confidence_score * 100)}% – ${data.verification_reason || 'Outbreak confirmed.'}`;
+    } else if (data.status === 'rejected') {
+      cardMessage = `❌ Report rejected: ${data.verification_reason || 'Media validation failed.'} Please provide clearer evidence.`;
+    } else {
+      cardMessage = `⏳ Verifying your report... We'll notify you once the AI check is complete.`;
+    }
+    res.json({ status: data.status, message: cardMessage });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==================== START SERVER ====================
