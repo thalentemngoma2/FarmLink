@@ -69,18 +69,15 @@ const HF_API_KEY = process.env.EXPO_PUBLIC_HF_API_KEY || '';
 const USE_REAL_AI = HF_API_KEY.length > 0;
 const API_URL = 'https://api-inference.huggingface.co/models/Dhiryashil/farm-disease-detection';
 
-// List of common crop names for mismatch detection
 const COMMON_PLANTS = [
   'maize', 'corn', 'tomato', 'avocado', 'wheat', 'rice', 'potato',
   'soybean', 'coffee', 'tea', 'cassava', 'banana', 'orange', 'mango',
   'cocoa', 'cotton', 'sugarcane', 'grape', 'apple', 'pepper', 'onion'
 ];
 
-// Helper: Check if analysis mentions a different plant than the user entered
 const doesAnalysisMatchPlant = (analysis: PlantAnalysis, userPlant: string): boolean => {
   const lowerUserPlant = userPlant.toLowerCase().trim();
   const combinedText = `${analysis.cause} ${analysis.solution} ${analysis.preventiveTips}`.toLowerCase();
-  
   for (const plant of COMMON_PLANTS) {
     if (plant !== lowerUserPlant && combinedText.includes(plant)) {
       return false;
@@ -145,28 +142,46 @@ export default function FarmLinkPage() {
     }
   };
 
+  // FIXED: fetchCommunityScans – manual join to avoid relationship error
   const fetchCommunityScans = async () => {
     setLoadingCommunity(true);
     try {
-      let query = supabase
+      // 1. Fetch latest 10 scans with user_id
+      const { data: scans, error: scansError } = await supabase
         .from('plant_scans')
-        .select(`
-          id,
-          plant_name,
-          image_url,
-          analysis_state,
-          created_at,
-          profiles!inner (name, location)
-        `)
+        .select('id, user_id, plant_name, image_url, analysis_state, created_at')
         .order('created_at', { ascending: false })
         .limit(10);
-      if (user) query = query.neq('user_id', user.id);
-      const { data, error } = await query;
-      if (error) throw error;
-      const community: CommunityScan[] = (data || []).map((scan: any) => ({
+
+      if (scansError) throw scansError;
+      if (!scans || scans.length === 0) {
+        setCommunityScans([]);
+        setLoadingCommunity(false);
+        return;
+      }
+
+      // 2. Collect unique user_ids and fetch usernames from 'users' table
+      const userIds = [...new Set(scans.map(scan => scan.user_id).filter(id => id))];
+      let userMap: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const { data: users, error: usersError } = await supabase
+          .from('users')
+          .select('user_id, username')
+          .in('user_id', userIds);
+        if (!usersError && users) {
+          userMap = Object.fromEntries(users.map(u => [u.user_id, u.username || 'Anonymous Farmer']));
+        } else {
+          console.warn('Could not fetch usernames:', usersError);
+          // Fallback: use 'Farmer' + last 4 chars of user_id
+          userIds.forEach(id => { userMap[id] = `Farmer_${id.slice(-4)}`; });
+        }
+      }
+
+      // 3. Build community scans array
+      const community: CommunityScan[] = scans.map(scan => ({
         id: scan.id,
-        farmerName: scan.profiles?.name || 'Anonymous Farmer',
-        location: scan.profiles?.location || 'Unknown Region',
+        farmerName: userMap[scan.user_id] || 'Anonymous Farmer',
+        location: 'Unknown Region', // you can join a location table if available
         imageUri: scan.image_url,
         plantName: scan.plant_name,
         analysisState:
@@ -175,9 +190,11 @@ export default function FarmLinkPage() {
           scan.analysis_state === 'undergrowth' ? 'Undergrowth' : 'Overgrowth',
         timestamp: formatRelativeTime(scan.created_at),
       }));
+
       setCommunityScans(community);
     } catch (error) {
       console.error('Failed to load community scans', error);
+      Alert.alert('Error', 'Could not load community scans');
     } finally {
       setLoadingCommunity(false);
     }
@@ -321,12 +338,9 @@ export default function FarmLinkPage() {
 
       try {
         let analysis: PlantAnalysis;
-        let usingMock = false;
-
         if (USE_REAL_AI) {
           try {
             analysis = await analyzeWithRealAI(uri);
-            // Check if the analysis mentions a different plant
             if (!doesAnalysisMatchPlant(analysis, plantName.trim())) {
               Alert.alert(
                 'Plant Mismatch',
@@ -340,13 +354,10 @@ export default function FarmLinkPage() {
           } catch (aiError) {
             console.error('Real AI failed, falling back to mock:', aiError);
             analysis = mockAnalyzePlant();
-            usingMock = true;
             Alert.alert('AI Service Unavailable', 'Using mock data for this scan. Please try again later.');
           }
         } else {
           analysis = mockAnalyzePlant();
-          usingMock = true;
-          // In mock mode, we still warn about plant mismatch (optional)
           if (!doesAnalysisMatchPlant(analysis, plantName.trim())) {
             Alert.alert(
               'Mock Data Warning',
@@ -354,13 +365,14 @@ export default function FarmLinkPage() {
               [{ text: 'Continue Anyway', style: 'cancel' }, { text: 'Cancel Scan', onPress: () => resetPlantModal() }],
               { cancelable: false }
             );
-            // We'll continue but user was warned
           }
         }
 
         await uploadAndSaveScan(uri, plantName.trim(), analysis);
         setAnalysisResult(analysis);
         await fetchUserScans(user.id);
+        // Refresh community scans after new scan
+        await fetchCommunityScans();
       } catch (error) {
         console.error('Scan failed', error);
         Alert.alert('Error', 'Failed to analyze plant. Please try again.');
@@ -385,7 +397,7 @@ export default function FarmLinkPage() {
     setFeedbackGiven(false);
   };
 
-  // Background animations (unchanged)
+  // Background animations
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
   useEffect(() => {
@@ -670,7 +682,6 @@ export default function FarmLinkPage() {
   );
 }
 
-// Styles (unchanged except added targetPlantBadge and targetPlantText)
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
   container: { flex: 1, position: 'relative' },

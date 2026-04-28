@@ -1,13 +1,20 @@
+// app/(tabs)/notifications.tsx
 import { BottomNav } from '@/components/bottom-nav';
+// import OutbreakHeatMap from '@/components/OutbreakHeatMap';        // real version (requires backend data)
+import MockOutbreakHeatMap from '@/components/MockOutbreakHeatMap'; // demo version with mock data
+import OutbreakReport from '@/components/OutbreakReport';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
+  Modal,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,7 +29,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
-  withTiming
+  withTiming,
 } from 'react-native-reanimated';
 
 // -----------------------------------------------------------------------------
@@ -30,7 +37,7 @@ import Animated, {
 // -----------------------------------------------------------------------------
 interface Notification {
   id: string;
-  type: 'reply' | 'like' | 'follow' | 'achievement' | 'alert' | 'system';
+  type: 'reply' | 'like' | 'follow' | 'achievement' | 'alert' | 'system' | 'outbreak_alert';
   title: string;
   message: string;
   time: string;
@@ -40,9 +47,6 @@ interface Notification {
   iconColor: string;
 }
 
-// -----------------------------------------------------------------------------
-// Helper: map notification type to icon name & color
-// -----------------------------------------------------------------------------
 const getIconProps = (type: string) => {
   const mapping: Record<string, { name: string; color: string }> = {
     reply: { name: 'chatbubble-outline', color: '#3b82f6' },
@@ -51,13 +55,11 @@ const getIconProps = (type: string) => {
     achievement: { name: 'trophy-outline', color: '#f59e0b' },
     alert: { name: 'alert-circle-outline', color: '#ef4444' },
     system: { name: 'checkmark-circle-outline', color: '#22c55e' },
+    outbreak_alert: { name: 'warning-outline', color: '#f97316' },
   };
   return mapping[type] || { name: 'notifications-outline', color: '#9ca3af' };
 };
 
-// -----------------------------------------------------------------------------
-// Main Component
-// -----------------------------------------------------------------------------
 export default function NotificationsPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -65,24 +67,24 @@ export default function NotificationsPage() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<'alerts' | 'outbreaks'>('alerts');
+  const [showReportModal, setShowReportModal] = useState(false);
+  const { width, height } = Dimensions.get('window');
 
-  // ---------------------------------------------------------------------------
-  // Fetch notifications from Supabase
-  // ---------------------------------------------------------------------------
+  const initialFetchDone = useRef(false);
+
   const fetchNotifications = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from('notifications')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      const { data, error } = await query;
       if (error) throw error;
 
-      // Map database rows to Notification interface
       const formatted = (data || []).map((n: any) => {
         const { name: iconName, color: iconColor } = getIconProps(n.type);
         return {
@@ -107,81 +109,57 @@ export default function NotificationsPage() {
   };
 
   useEffect(() => {
-    if (user) fetchNotifications();
+    if (user && !initialFetchDone.current) {
+      fetchNotifications();
+      initialFetchDone.current = true;
+    }
   }, [user]);
 
-  // Re‑fetch when filter changes (filtering is done client‑side)
-  useEffect(() => {
-    // No need to refetch; filtering happens in render.
-  }, [filter]);
-
-  // ---------------------------------------------------------------------------
-  // Mark a single notification as read
-  // ---------------------------------------------------------------------------
   const markAsRead = async (id: string) => {
     if (!user) return;
     try {
-      const { error } = await supabase
+      await supabase
         .from('notifications')
         .update({ read: true })
         .eq('id', id)
         .eq('user_id', user.id);
-      if (error) throw error;
-      // Update local state optimistically
-      setNotifications(prev =>
-        prev.map(n => (n.id === id ? { ...n, read: true } : n))
-      );
+      setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
     } catch (err) {
-      console.error('Failed to mark as read', err);
+      console.error(err);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Mark all unread notifications as read
-  // ---------------------------------------------------------------------------
   const markAllAsRead = async () => {
     if (!user) return;
     try {
-      const { error } = await supabase
+      await supabase
         .from('notifications')
         .update({ read: true })
         .eq('user_id', user.id)
         .eq('read', false);
-      if (error) throw error;
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     } catch (err) {
-      console.error('Failed to mark all as read', err);
+      console.error(err);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Delete a notification
-  // ---------------------------------------------------------------------------
   const deleteNotification = async (id: string) => {
     if (!user) return;
     try {
-      const { error } = await supabase
+      await supabase
         .from('notifications')
         .delete()
         .eq('id', id)
         .eq('user_id', user.id);
-      if (error) throw error;
       setNotifications(prev => prev.filter(n => n.id !== id));
     } catch (err) {
-      console.error('Failed to delete notification', err);
+      console.error(err);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Computed values
-  // ---------------------------------------------------------------------------
   const unreadCount = notifications.filter(n => !n.read).length;
-  const filteredNotifications =
-    filter === 'all' ? notifications : notifications.filter(n => !n.read);
+  const filteredNotifications = filter === 'all' ? notifications : notifications.filter(n => !n.read);
 
-  // ---------------------------------------------------------------------------
-  // Background animations (unchanged)
-  // ---------------------------------------------------------------------------
   const bgScale1 = useSharedValue(1);
   const bgX1 = useSharedValue(0);
   const bgY1 = useSharedValue(0);
@@ -205,9 +183,118 @@ export default function NotificationsPage() {
     transform: [{ scale: bgScale2.value }, { translateX: bgX2.value }, { translateY: bgY2.value }],
   }));
 
-  // ---------------------------------------------------------------------------
-  // Render states
-  // ---------------------------------------------------------------------------
+  const renderNotificationsList = () => (
+    <>
+      <Animated.View entering={FadeIn.delay(100)} style={styles.filterContainer}>
+        <View style={styles.filterButtons}>
+          <TouchableOpacity
+            style={[styles.filterButton, filter === 'all' && styles.filterActive]}
+            onPress={() => setFilter('all')}
+          >
+            <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>All</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterButton, filter === 'unread' && styles.filterActive]}
+            onPress={() => setFilter('unread')}
+          >
+            <Text style={[styles.filterText, filter === 'unread' && styles.filterTextActive]}>
+              Unread ({unreadCount})
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {unreadCount > 0 && (
+          <TouchableOpacity onPress={markAllAsRead}>
+            <Text style={styles.markAllText}>Mark all read</Text>
+          </TouchableOpacity>
+        )}
+      </Animated.View>
+
+      {error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : filteredNotifications.length === 0 ? (
+        <Animated.View entering={FadeIn} style={styles.emptyContainer}>
+          <GlassCard style={styles.emptyCard}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="notifications-outline" size={32} color="#22c55e" />
+            </View>
+            <Text style={styles.emptyText}>No notifications yet</Text>
+          </GlassCard>
+        </Animated.View>
+      ) : (
+        <View style={styles.notificationsList}>
+          {filteredNotifications.map((notification, index) => (
+            <Animated.View
+              key={notification.id}
+              entering={SlideInLeft.delay(index * 50)}
+              exiting={SlideOutRight}
+              layout={Layout.springify()}
+            >
+              <GlassCard style={[styles.notificationCard, !notification.read && styles.unreadCard]}>
+                <View style={styles.notificationContent}>
+                  <View
+                    style={[
+                      styles.iconContainer,
+                      { backgroundColor: `${notification.iconColor}20` },
+                    ]}
+                  >
+                    <Ionicons name={notification.iconName as any} size={20} color={notification.iconColor} />
+                  </View>
+                  <View style={styles.textContainer}>
+                    <View style={styles.titleRow}>
+                      <Text style={[styles.title, !notification.read && styles.titleUnread]}>
+                        {notification.title}
+                      </Text>
+                      <Text style={styles.time}>{notification.time}</Text>
+                    </View>
+                    <Text style={styles.message} numberOfLines={2}>
+                      {notification.message}
+                    </Text>
+                    <View style={styles.actions}>
+                      {!notification.read && (
+                        <TouchableOpacity onPress={() => markAsRead(notification.id)}>
+                          <Text style={styles.actionText}>Mark as read</Text>
+                        </TouchableOpacity>
+                      )}
+                      {notification.actionUrl && (
+                        <Link href={notification.actionUrl as any} asChild>
+                          <TouchableOpacity>
+                            <Text style={styles.actionText}>View</Text>
+                          </TouchableOpacity>
+                        </Link>
+                      )}
+                      <TouchableOpacity
+                        onPress={() => deleteNotification(notification.id)}
+                        style={styles.deleteButton}
+                      >
+                        <Ionicons name="trash-outline" size={16} color="#9ca3af" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </GlassCard>
+            </Animated.View>
+          ))}
+        </View>
+      )}
+    </>
+  );
+
+  const renderOutbreakTab = () => (
+    <View style={styles.outbreakContainer}>
+      {/* Use the mock heat map for demo – replace with OutbreakHeatMap when real data is ready */}
+      <MockOutbreakHeatMap initialFilter="all" />
+      <TouchableOpacity
+        style={styles.reportButton}
+        onPress={() => setShowReportModal(true)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.reportButtonText}>Report an Outbreak</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -227,153 +314,79 @@ export default function NotificationsPage() {
       <Animated.View style={[styles.blob, styles.blob1, bgBlob1Style]} />
       <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
 
-      <Animated.View entering={FadeIn} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-          <Ionicons name="arrow-back" size={20} color="#11181C" />
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'alerts' && styles.activeTab]}
+          onPress={() => setActiveTab('alerts')}
+        >
+          <Ionicons name="notifications" size={20} color={activeTab === 'alerts' ? '#22c55e' : '#9ca3af'} />
+          <Text style={[styles.tabText, activeTab === 'alerts' && styles.activeTabText]}>My Alerts</Text>
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Ionicons name="notifications-outline" size={20} color="#22c55e" />
-          <Text style={styles.headerTitle}>Notifications</Text>
-          {unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCount}</Text>
-            </View>
-          )}
-        </View>
-        <TouchableOpacity onPress={() => router.push('/settings')} style={styles.headerButton}>
-          <Ionicons name="settings-outline" size={20} color="#11181C" />
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'outbreaks' && styles.activeTab]}
+          onPress={() => setActiveTab('outbreaks')}
+        >
+          <Ionicons name="map-outline" size={20} color={activeTab === 'outbreaks' ? '#22c55e' : '#9ca3af'} />
+          <Text style={[styles.tabText, activeTab === 'outbreaks' && styles.activeTabText]}>Outbreak Map</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Animated.View entering={FadeIn.delay(100)} style={styles.filterContainer}>
-          <View style={styles.filterButtons}>
-            <TouchableOpacity
-              style={[styles.filterButton, filter === 'all' && styles.filterActive]}
-              onPress={() => setFilter('all')}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>All</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.filterButton, filter === 'unread' && styles.filterActive]}
-              onPress={() => setFilter('unread')}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.filterText, filter === 'unread' && styles.filterTextActive]}>
-                Unread ({unreadCount})
-              </Text>
-            </TouchableOpacity>
-          </View>
-          {unreadCount > 0 && (
-            <TouchableOpacity onPress={markAllAsRead}>
-              <Text style={styles.markAllText}>Mark all read</Text>
-            </TouchableOpacity>
-          )}
-        </Animated.View>
-
-        {error ? (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : filteredNotifications.length === 0 ? (
-          <Animated.View entering={FadeIn} style={styles.emptyContainer}>
-            <GlassCard style={styles.emptyCard}>
-              <View style={styles.emptyIcon}>
-                <Ionicons name="notifications-outline" size={32} color="#22c55e" />
-              </View>
-              <Text style={styles.emptyText}>No notifications yet</Text>
-            </GlassCard>
-          </Animated.View>
-        ) : (
-          <View style={styles.notificationsList}>
-            {filteredNotifications.map((notification, index) => (
-              <Animated.View
-                key={notification.id}
-                entering={SlideInLeft.delay(index * 50)}
-                exiting={SlideOutRight}
-                layout={Layout.springify()}
-              >
-                <GlassCard style={[styles.notificationCard, !notification.read && styles.unreadCard]}>
-                  <View style={styles.notificationContent}>
-                    <View
-                      style={[
-                        styles.iconContainer,
-                        { backgroundColor: `${notification.iconColor}20` },
-                      ]}
-                    >
-                      <Ionicons name={notification.iconName as any} size={20} color={notification.iconColor} />
-                    </View>
-                    <View style={styles.textContainer}>
-                      <View style={styles.titleRow}>
-                        <Text style={[styles.title, !notification.read && styles.titleUnread]}>
-                          {notification.title}
-                        </Text>
-                        <Text style={styles.time}>{notification.time}</Text>
-                      </View>
-                      <Text style={styles.message} numberOfLines={2}>
-                        {notification.message}
-                      </Text>
-                      <View style={styles.actions}>
-                        {!notification.read && (
-                          <TouchableOpacity onPress={() => markAsRead(notification.id)}>
-                            <Text style={styles.actionText}>Mark as read</Text>
-                          </TouchableOpacity>
-                        )}
-                        {notification.actionUrl && (
-                          <Link href={notification.actionUrl as any} asChild>
-                            <TouchableOpacity>
-                              <Text style={styles.actionText}>View</Text>
-                            </TouchableOpacity>
-                          </Link>
-                        )}
-                        <TouchableOpacity
-                          onPress={() => deleteNotification(notification.id)}
-                          style={styles.deleteButton}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#9ca3af" />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-                </GlassCard>
-              </Animated.View>
-            ))}
-          </View>
-        )}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {activeTab === 'alerts' ? renderNotificationsList() : renderOutbreakTab()}
       </ScrollView>
+
+      <Modal
+        visible={showReportModal}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowReportModal(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+          <OutbreakReport onClose={() => setShowReportModal(false)} />
+        </SafeAreaView>
+      </Modal>
 
       <BottomNav />
     </View>
   );
 }
 
-// -----------------------------------------------------------------------------
-// Styles (unchanged from your original)
-// -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   blob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)' },
   blob1: { width: 200, height: 200, top: -50, left: -50 },
   blob2: { width: 250, height: 250, bottom: -50, right: -50 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
-  errorText: { fontSize: 14, color: '#ef4444' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: 'rgba(255,255,255,0.7)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.3)',
   },
-  headerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.5)', alignItems: 'center', justifyContent: 'center' },
-  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.5)', alignItems: 'center', justifyContent: 'center' },
+  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 8 },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#11181C' },
-  badge: { backgroundColor: '#22c55e', borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, minWidth: 20, alignItems: 'center' },
-  badgeText: { fontSize: 10, fontWeight: '600', color: 'white' },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    overflow: 'hidden',
+  },
+  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, backgroundColor: '#fff' },
+  activeTab: { backgroundColor: '#f0fdf4' },
+  tabText: { fontSize: 14, fontWeight: '500', color: '#9ca3af' },
+  activeTabText: { color: '#22c55e' },
   scrollContent: { flexGrow: 1, paddingBottom: 80 },
   filterContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 16, marginBottom: 16 },
   filterButtons: { flexDirection: 'row', gap: 8 },
@@ -400,4 +413,9 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   actionText: { fontSize: 11, fontWeight: '500', color: '#22c55e' },
   deleteButton: { marginLeft: 'auto', padding: 4 },
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
+  errorText: { fontSize: 14, color: '#ef4444' },
+  outbreakContainer: { flex: 1, paddingHorizontal: 0 },
+  reportButton: { backgroundColor: '#22c55e', margin: 16, padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  reportButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
