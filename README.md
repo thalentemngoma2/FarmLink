@@ -45,19 +45,86 @@ To learn more about developing your project with Expo, look at the following res
 
 ##for developers
 
-<h2>Your FarmLink Verification Code</h2>
-
-<p>Hello,</p>
-
-<p>Use this code to complete your registration:</p>
-
-<h1 style="font-size: 32px; letter-spacing: 4px;">{{ .Token }}</h1>
-
-<p>This code will expire in 1 hour.</p>
-
-<p>If you didn't request this code, you can safely ignore this email.</p>
-
-<p>Best regards,<br>The FarmLink Team</p>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FarmLink Verification Code</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f9fafb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f9fafb; padding: 40px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" max-width="600px" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);">
+          
+          <!-- Header with FarmLink Logo -->
+          <tr>
+            <td style="padding: 40px 32px 0 32px; text-align: center;">
+              <div style="background-color: #22c55e; width: 60px; height: 60px; border-radius: 30px; margin: 0 auto 20px auto; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 32px; font-weight: 700;">🌾</span>
+              </div>
+              <h1 style="color: #1f2937; font-size: 28px; font-weight: 700; margin: 0 0 8px 0;">FarmLink</h1>
+              <p style="color: #6b7280; font-size: 16px; margin: 0;">AI-Powered Farming Companion</p>
+            </td>
+          </tr>
+          
+          <!-- Divider -->
+          <tr>
+            <td style="padding: 24px 32px 0 32px;">
+              <div style="height: 2px; background: linear-gradient(90deg, #22c55e 0%, #86efac 100%); border-radius: 2px;"></div>
+            </td>
+          </tr>
+          
+          <!-- Main Content -->
+          <tr>
+            <td style="padding: 32px 32px 24px 32px;">
+              <h2 style="color: #1f2937; font-size: 22px; font-weight: 600; margin: 0 0 12px 0;">Verify Your Email</h2>
+              <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin: 0 0 8px 0;">Hello,</p>
+              <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
+                Thank you for joining FarmLink! Please use the verification code below to complete your registration:
+              </p>
+              
+              <!-- OTP Code Box -->
+              <div style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-radius: 16px; padding: 28px 20px; text-align: center; margin: 8px 0 24px 0; border: 1px solid #86efac;">
+                <div style="font-size: 48px; font-weight: 700; letter-spacing: 12px; color: #22c55e; background-color: #ffffff; display: inline-block; padding: 16px 24px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
+                  {{ .Token }}
+                </div>
+              </div>
+              
+              <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; border-radius: 8px; margin: 24px 0;">
+                <p style="color: #92400e; font-size: 14px; margin: 0;">
+                  ⏰ This code will expire in <strong>1 hour</strong>
+                </p>
+              </div>
+              
+              <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
+                If you didn't request this code, you can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 24px 32px 32px 32px; background-color: #f9fafb; border-radius: 0 0 24px 24px;">
+              <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 24px 0;">
+              <p style="color: #9ca3af; font-size: 13px; margin: 0 0 8px 0; text-align: center;">
+                🌱 Grow smarter with FarmLink
+              </p>
+              <p style="color: #9ca3af; font-size: 12px; margin: 0; text-align: center;">
+                &copy; 2025 FarmLink. All rights reserved.
+              </p>
+              <p style="color: #9ca3af; font-size: 12px; margin: 16px 0 0 0; text-align: center;">
+                <a href="{{ .SiteURL }}" style="color: #22c55e; text-decoration: none;">Visit FarmLink</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
 
 ##The above code is for configure Supabase to send OTP codes instead of magic links you will Replace the content with this OTP-focused template:
 
