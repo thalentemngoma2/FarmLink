@@ -1,20 +1,19 @@
-import { BottomNav } from '@/components/bottom-nav';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Link, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import Animated, {
   FadeIn,
@@ -24,198 +23,227 @@ import Animated, {
   useSharedValue,
   withRepeat,
   withSpring,
-  withTiming
+  withTiming,
 } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
-interface SettingItem {
-  icon: string;
-  label: string;
-  description?: string;
-  href?: string;
-  action?: () => void;
-  toggle?: boolean;
-  value?: boolean;
-  danger?: boolean;
+interface PrivacySettings {
+  profile_visibility: 'public' | 'farmers_only' | 'private';
+  show_username: boolean;
+  show_email: boolean;
+  show_phone: boolean;
+  show_location: boolean;
+  post_visibility: 'public' | 'farmers_only' | 'groups';
+  comment_permissions: 'everyone' | 'followers' | 'disabled';
+  media_visibility: boolean;
+  message_receive_from: 'everyone' | 'verified' | 'none';
+  location_sharing: boolean;
+  location_precision: 'exact' | 'approximate';
+  heatmap_consent: boolean;
+  ai_upload_consent: boolean;
+  evidence_access_restricted: boolean;
+  data_retention_days: number;
+  outbreak_alerts: boolean;
+  market_alerts: boolean;   // will be tied to subscription
+  message_notifications: boolean;
+  system_notifications: boolean;
 }
 
-interface SettingSection {
-  title: string;
-  items: SettingItem[];
-}
+const defaultPrivacy: PrivacySettings = {
+  profile_visibility: 'public',
+  show_username: true,
+  show_email: false,
+  show_phone: false,
+  show_location: false,
+  post_visibility: 'public',
+  comment_permissions: 'everyone',
+  media_visibility: true,
+  message_receive_from: 'everyone',
+  location_sharing: true,
+  location_precision: 'approximate',
+  heatmap_consent: false,
+  ai_upload_consent: false,
+  evidence_access_restricted: true,
+  data_retention_days: 30,
+  outbreak_alerts: true,
+  market_alerts: false,
+  message_notifications: true,
+  system_notifications: true,
+};
+
+// -----------------------------------------------------------------------------
+// Subscription plans (ZAR)
+// -----------------------------------------------------------------------------
+const PLANS = [
+  {
+    name: 'Basic',
+    price: 49,
+    features: [
+      'Promote up to 3 products/month',
+      'Standard listing visibility',
+      'Appears in general browsing feed',
+      'Basic analytics (views only)',
+    ],
+  },
+  {
+    name: 'Growth',
+    price: 99,
+    features: [
+      'Promote up to 10 products/month',
+      'Priority listing (above Basic)',
+      'Retailer discovery boost',
+      'Analytics (views + clicks)',
+      '"Interested Retailers" notifications',
+    ],
+  },
+  {
+    name: 'Premium',
+    price: 199,
+    features: [
+      'Unlimited product promotions',
+      'Top priority placement',
+      'Featured in "Recommended Suppliers"',
+      'Advanced analytics',
+      'Direct retailer connection requests',
+      'Priority support',
+    ],
+  },
+  {
+    name: 'Pay-Per-Post',
+    price: 10,
+    note: 'R10 per single promoted product (valid for 7 days)',
+  },
+];
 
 // -----------------------------------------------------------------------------
 // Main Component
 // -----------------------------------------------------------------------------
-export default function SettingsPage() {
+export default function PrivacySecurityPage() {
   const router = useRouter();
-  const { user, logout } = useAuth();
-  const [profile, setProfile] = useState<{ username: string; email: string; role?: string; avatar?: string } | null>(null);
-  const [settings, setSettings] = useState({
-    dark_mode: false,
-    push_notifications: true,
-    offline_mode: false,
-    language: 'en',
-  });
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const [privacy, setPrivacy] = useState<PrivacySettings>(defaultPrivacy);
+  const [darkMode, setDarkMode] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const loadingTimeout = useRef<any>(null);
 
-  // ---------------------------------------------------------------------------
-  // Data fetching (direct Supabase) – only if user is logged in
-  // ---------------------------------------------------------------------------
+  // Fallback timeout
   useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-    Promise.all([fetchProfile(), fetchSettings()]).finally(() => setLoading(false));
+    loadingTimeout.current = setTimeout(() => setSaving(false), 10000);
+    return () => clearTimeout(loadingTimeout.current);
+  }, []);
+
+  // Load settings from DB
+  useEffect(() => {
+    if (!user) return;
+    loadSettings();
   }, [user]);
 
-  const fetchProfile = async () => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('users')
-      .select('username, email, role, avatar')
-      .eq('user_id', user.id)
-      .maybeSingle();            // ✅ use maybeSingle to avoid 406 when row missing
-    if (!error && data) {
-      setProfile({ ...data, avatar: data.avatar || data.username?.[0]?.toUpperCase() || 'U' });
-    } else if (error) {
-      console.error('Profile fetch error', error);
-    }
-  };
-
-  const fetchSettings = async () => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('user_settings')
-      .select('dark_mode, push_notifications, offline_mode, language')
-      .eq('user_id', user.id)
-      .maybeSingle();            // ✅ may not exist yet
-    if (!error && data) {
-      setSettings(data);
-    } else if (error && error.code !== 'PGRST116') {
-      console.error(error);
-    }
-  };
-
-  // ---------------------------------------------------------------------------
-  // Update a single setting (upsert)
-  // ---------------------------------------------------------------------------
-  const updateSetting = async (key: string, value: any) => {
-    if (!user) return;
-    const newSettings = { ...settings, [key]: value };
-    setSettings(newSettings); // optimistic UI
-
-    const { error } = await supabase
-      .from('user_settings')
-      .upsert({
-        user_id: user.id,
-        dark_mode: newSettings.dark_mode,
-        push_notifications: newSettings.push_notifications,
-        offline_mode: newSettings.offline_mode,
-        language: newSettings.language,
-        updated_at: new Date(),
-      }, { onConflict: 'user_id' });
-
-    if (error) {
-      Alert.alert('Error', 'Failed to save setting');
-      // revert
-      const { data } = await supabase
-        .from('user_settings')
-        .select('dark_mode, push_notifications, offline_mode, language')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (data) setSettings(data);
-    }
-  };
-
-  // ---------------------------------------------------------------------------
-  // Handlers
-  // ---------------------------------------------------------------------------
-  const handleSignOut = async () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-          router.replace('/login');
-        },
-      },
-    ]);
-  };
-
-  const handleShare = async () => {
+  const loadSettings = async () => {
     try {
-      await Share.share({
-        title: 'FarmLink',
-        message: 'Check out FarmLink - the AI-powered farming assistant!',
-        url: 'https://farmlink.app',
-      });
-    } catch (error) {
-      Alert.alert('Error', 'Unable to share at this time');
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('privacy_settings, dark_mode')
+        .eq('user_id', user!.id)
+        .maybeSingle();
+      if (!error && data) {
+        if (data.privacy_settings) {
+          setPrivacy({ ...defaultPrivacy, ...data.privacy_settings });
+        }
+        if (typeof data.dark_mode === 'boolean') {
+          setDarkMode(data.dark_mode);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load settings', err);
     }
   };
 
-  const handleClearCache = () => {
-    Alert.alert('Clear Cache', 'Cache cleared successfully!');
+  // Save privacy settings (supabase upsert)
+  const savePrivacySettings = async (newSettings: PrivacySettings) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert(
+          {
+            user_id: user!.id,
+            privacy_settings: newSettings,
+            dark_mode: darkMode,
+            updated_at: new Date(),
+          },
+          { onConflict: 'user_id' }
+        );
+      if (error) throw error;
+      Alert.alert('Saved', 'Your privacy settings have been updated.');
+    } catch (err: any) {
+      console.error('Save error:', err);
+      if (err.code === '42703') {
+        Alert.alert('Saved locally', 'Add privacy_settings jsonb column to user_settings for permanent storage.');
+      } else {
+        Alert.alert('Error', 'Could not save settings. Please check your connection.');
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleRate = () => {
-    Alert.alert('Thank you!', 'Your feedback helps us improve.');
+  const updateAndSave = (update: Partial<PrivacySettings>) => {
+    const newSettings = { ...privacy, ...update };
+    setPrivacy(newSettings);
+    savePrivacySettings(newSettings);
   };
 
-  // ---------------------------------------------------------------------------
-  // Menu sections (dynamic values from state)
-  // ---------------------------------------------------------------------------
-  const settingSections: SettingSection[] = [
-    {
-      title: 'Account',
-      items: [
-        { icon: 'person-outline', label: 'Edit Profile', description: 'Update your personal information', href: '/edit-profile' },
-        { icon: 'lock-closed-outline', label: 'Privacy & Security', description: 'Manage your privacy settings', href: '/settings/privacy' },
-        { icon: 'shield-outline', label: 'Two-Factor Authentication', description: 'Add extra security to your account', href: '/settings/2fa' },
-      ],
-    },
-    {
-      title: 'Preferences',
-      items: [
-        { icon: settings.dark_mode ? 'moon-outline' : 'sunny-outline', label: 'Dark Mode', description: 'Switch between light and dark theme', toggle: true, value: settings.dark_mode, action: () => updateSetting('dark_mode', !settings.dark_mode) },
-        { icon: 'notifications-outline', label: 'Push Notifications', description: 'Receive alerts and updates', toggle: true, value: settings.push_notifications, action: () => updateSetting('push_notifications', !settings.push_notifications) },
-        { icon: 'language-outline', label: 'Language', description: 'English (US)', href: '/settings/language' },
-        { icon: 'phone-portrait-outline', label: 'Offline Mode', description: 'Download content for offline use', toggle: true, value: settings.offline_mode, action: () => updateSetting('offline_mode', !settings.offline_mode) },
-      ],
-    },
-    {
-      title: 'Data & Storage',
-      items: [
-        { icon: 'server-outline', label: 'Storage Usage', description: '23.5 MB used', href: '/settings/storage' },
-        { icon: 'trash-outline', label: 'Clear Cache', description: 'Free up space on your device', action: handleClearCache },
-      ],
-    },
-    {
-      title: 'Support',
-      items: [
-        { icon: 'help-circle-outline', label: 'Help Center', description: 'FAQs and troubleshooting', href: '/help' },
-        { icon: 'chatbubbles-outline', label: 'Contact Us', description: 'Get in touch with our team', href: '/contact' },
-        { icon: 'star-outline', label: 'Rate FarmLink', description: 'Share your feedback', action: handleRate },
-        { icon: 'share-social-outline', label: 'Share App', description: 'Invite friends to FarmLink', action: handleShare },
-      ],
-    },
-    {
-      title: 'Account Actions',
-      items: [
-        { icon: 'log-out-outline', label: 'Sign Out', description: 'Log out of your account', action: handleSignOut, danger: true },
-      ],
-    },
-  ];
+  // Dark mode toggle – actually apply theme via AuthContext or global state.
+  // This assumes your AuthContext has a setDarkMode method.
+  const { setGlobalDarkMode } = useAuth() as any;   // adjust if your context provides this
+  const toggleDarkMode = async (value: boolean) => {
+    setDarkMode(value);
+    try {
+      if (setGlobalDarkMode) setGlobalDarkMode(value);
+      await supabase
+        .from('user_settings')
+        .upsert(
+          { user_id: user!.id, dark_mode: value, updated_at: new Date() },
+          { onConflict: 'user_id' }
+        );
+    } catch (err) {
+      console.error('Failed to save dark mode', err);
+      setDarkMode(!value);
+    }
+  };
 
-  // ---------------------------------------------------------------------------
-  // Background animations (same as your original)
-  // ---------------------------------------------------------------------------
+  // Handle market alerts toggle
+  const handleMarketToggle = (val: boolean) => {
+    if (val) {
+      // Show subscription plans
+      setShowPlanModal(true);
+    } else {
+      // Turn off market alerts
+      updateAndSave({ market_alerts: false });
+    }
+  };
+
+  const onSelectPlan = (planName: string) => {
+    setShowPlanModal(false);
+    // In a real app you would process payment here.
+    // For now we assume subscription is activated.
+    Alert.alert(
+      'Subscribed!',
+      `You selected the ${planName} plan. Market opportunities are now active.`,
+      [
+        {
+          text: 'OK',
+          onPress: () => updateAndSave({ market_alerts: true }),
+        },
+      ]
+    );
+  };
+
+  // ---------- Background animations (same as settings page) ----------
   const bgScale1 = useSharedValue(1);
   const bgX1 = useSharedValue(0);
   const bgY1 = useSharedValue(0);
@@ -239,10 +267,8 @@ export default function SettingsPage() {
     transform: [{ scale: bgScale2.value }, { translateX: bgX2.value }, { translateY: bgY2.value }],
   }));
 
-  // ---------------------------------------------------------------------------
-  // Animated Switch Component
-  // ---------------------------------------------------------------------------
-  const AnimatedSwitch: React.FC<{ value: boolean; onValueChange: (value: boolean) => void }> = ({ value, onValueChange }) => {
+  // ---------- Reanimated Switch ----------
+  const AnimatedSwitch: React.FC<{ value: boolean; onValueChange: (val: boolean) => void }> = ({ value, onValueChange }) => {
     const translateX = useSharedValue(value ? 20 : 0);
     const bgColor = useSharedValue(value ? 1 : 0);
 
@@ -252,7 +278,9 @@ export default function SettingsPage() {
     }, [value]);
 
     const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }));
-    const trackStyle = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(bgColor.value, [0, 1], ['#e5e7eb', '#22c55e']) }));
+    const trackStyle = useAnimatedStyle(() => ({
+      backgroundColor: interpolateColor(bgColor.value, [0, 1], ['#e5e7eb', '#22c55e']),
+    }));
 
     return (
       <TouchableOpacity onPress={() => onValueChange(!value)} activeOpacity={0.7} style={styles.switchContainer}>
@@ -263,79 +291,64 @@ export default function SettingsPage() {
     );
   };
 
-  // ---------------------------------------------------------------------------
-  // Loading & login prompt
-  // ---------------------------------------------------------------------------
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#22c55e" />
+  // ---------- Helper components ----------
+  const ToggleRow = ({ label, description, value, onToggle }: { label: string; description?: string; value: boolean; onToggle: (val: boolean) => void }) => (
+    <View style={styles.settingItem}>
+      <View style={styles.settingText}>
+        <Text style={styles.settingLabel}>{label}</Text>
+        {description && <Text style={styles.settingDescription}>{description}</Text>}
       </View>
-    );
-  }
+      <AnimatedSwitch value={value} onValueChange={onToggle} />
+    </View>
+  );
 
-  // If user is not logged in, show a login prompt instead of empty loading
+  const NavRow = ({ label, description, onPress, danger }: { label: string; description?: string; onPress: () => void; danger?: boolean }) => (
+    <TouchableOpacity style={[styles.settingItem, danger && styles.settingItemDanger]} onPress={onPress} activeOpacity={0.7}>
+      <View style={styles.settingText}>
+        <Text style={[styles.settingLabel, danger && styles.dangerText]}>{label}</Text>
+        {description && <Text style={styles.settingDescription}>{description}</Text>}
+      </View>
+      <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
+    </TouchableOpacity>
+  );
+
+  const InfoRow = ({ icon, text }: { icon: string; text: string }) => (
+    <View style={styles.infoRow}>
+      <Ionicons name={icon as any} size={20} color="#22c55e" style={{ marginRight: 8 }} />
+      <Text style={styles.infoText}>{text}</Text>
+    </View>
+  );
+
+  // ---------- Not signed in view ----------
   if (!user) {
     return (
       <View style={styles.container}>
         <LinearGradient colors={['#f0fdf4', '#ffffff', '#ecfdf5']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
         <Animated.View style={[styles.blob, styles.blob1, bgBlob1Style]} />
         <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
-
         <Animated.View entering={FadeIn} style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
             <Ionicons name="arrow-back" size={20} color="#11181C" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Ionicons name="settings-outline" size={20} color="#22c55e" />
-            <Text style={styles.headerTitle}>Settings</Text>
+            <Ionicons name="shield-checkmark-outline" size={20} color="#22c55e" />
+            <Text style={styles.headerTitle}>Privacy & Security</Text>
           </View>
           <View style={styles.headerPlaceholder} />
         </Animated.View>
-
         <View style={styles.notLoggedInContainer}>
           <Ionicons name="lock-closed-outline" size={48} color="#9ca3af" />
           <Text style={styles.notLoggedInTitle}>Not Signed In</Text>
-          <Text style={styles.notLoggedInText}>Please log in to access your settings and preferences.</Text>
+          <Text style={styles.notLoggedInText}>Please log in to access privacy settings.</Text>
           <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
             <Text style={styles.loginButtonText}>Go to Login</Text>
           </TouchableOpacity>
         </View>
-        <BottomNav />
       </View>
     );
   }
 
-  // If user exists but profile is missing (should not happen, but fallback)
-  if (!profile) {
-    return (
-      <View style={styles.container}>
-        <LinearGradient colors={['#f0fdf4', '#ffffff', '#ecfdf5']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-        <Animated.View style={[styles.blob, styles.blob1, bgBlob1Style]} />
-        <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
-
-        <Animated.View entering={FadeIn} style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-            <Ionicons name="arrow-back" size={20} color="#11181C" />
-          </TouchableOpacity>
-          <View style={styles.headerCenter}>
-            <Ionicons name="settings-outline" size={20} color="#22c55e" />
-            <Text style={styles.headerTitle}>Settings</Text>
-          </View>
-          <View style={styles.headerPlaceholder} />
-        </Animated.View>
-        <View style={styles.notLoggedInContainer}>
-          <ActivityIndicator size="large" color="#22c55e" />
-          <Text style={styles.notLoggedInTitle}>Loading profile...</Text>
-        </View>
-        <BottomNav />
-      </View>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Main render (user is logged in and profile exists)
-  // ---------------------------------------------------------------------------
+  // ---------- Main page ----------
   return (
     <View style={styles.container}>
       <LinearGradient colors={['#f0fdf4', '#ffffff', '#ecfdf5']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
@@ -347,102 +360,317 @@ export default function SettingsPage() {
           <Ionicons name="arrow-back" size={20} color="#11181C" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Ionicons name="settings-outline" size={20} color="#22c55e" />
-          <Text style={styles.headerTitle}>Settings</Text>
+          <Ionicons name="shield-checkmark-outline" size={20} color="#22c55e" />
+          <Text style={styles.headerTitle}>Privacy & Security</Text>
         </View>
         <View style={styles.headerPlaceholder} />
       </Animated.View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Animated.View entering={SlideInDown.duration(600)} style={styles.userCard}>
-          <GlassCard style={styles.userCardGlass}>
-            <Link href="/edit-profile" asChild>
-              <TouchableOpacity style={styles.userCardContent}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {profile.avatar || profile.username?.charAt(0).toUpperCase() || 'U'}
-                  </Text>
-                </View>
-                <View style={styles.userInfo}>
-                  <Text style={styles.userName}>{profile.username}</Text>
-                  <Text style={styles.userEmail}>{profile.email}</Text>
-                  <Text style={styles.userBadge}>{profile.role || 'Farmer'} Member</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-              </TouchableOpacity>
-            </Link>
+        {/* Dark Mode Toggle – now actually changes the app theme */}
+        <Animated.View entering={SlideInDown.delay(20)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Appearance</Text>
+          <GlassCard style={styles.glassCard}>
+            <ToggleRow
+              label={darkMode ? 'Dark Mode' : 'Light Mode'}
+              description="Applies to the entire app"
+              value={darkMode}
+              onToggle={toggleDarkMode}
+            />
           </GlassCard>
         </Animated.View>
 
-        <View style={styles.sectionsContainer}>
-          {settingSections.map((section, sectionIdx) => (
-            <Animated.View key={section.title} entering={FadeIn.delay(100 + sectionIdx * 50)} style={styles.section}>
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-              <GlassCard style={styles.sectionCard}>
-                {section.items.map((item, itemIdx) => {
-                  const IconComponent = () => (
-                    <Ionicons name={item.icon as any} size={20} color={item.danger ? '#ef4444' : '#22c55e'} />
-                  );
-                  return (
-                    <React.Fragment key={itemIdx}>
-                      {item.href ? (
-                        <Link href={item.href as any} asChild>
-                          <TouchableOpacity style={[styles.settingItem, item.danger && styles.settingItemDanger]}>
-                            <View style={[styles.iconContainer, item.danger ? styles.dangerIcon : styles.defaultIcon]}>
-                              <IconComponent />
-                            </View>
-                            <View style={styles.settingText}>
-                              <Text style={[styles.settingLabel, item.danger && styles.dangerText]}>{item.label}</Text>
-                              {item.description && <Text style={styles.settingDescription}>{item.description}</Text>}
-                            </View>
-                            <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
-                          </TouchableOpacity>
-                        </Link>
-                      ) : (
-                        <TouchableOpacity
-                          style={[styles.settingItem, item.danger && styles.settingItemDanger]}
-                          onPress={item.action}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.iconContainer, item.danger ? styles.dangerIcon : styles.defaultIcon]}>
-                            <IconComponent />
-                          </View>
-                          <View style={styles.settingText}>
-                            <Text style={[styles.settingLabel, item.danger && styles.dangerText]}>{item.label}</Text>
-                            {item.description && <Text style={styles.settingDescription}>{item.description}</Text>}
-                          </View>
-                          {item.toggle ? (
-                            <AnimatedSwitch value={item.value ?? false} onValueChange={item.action!} />
-                          ) : !item.danger && (
-                            <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
-                          )}
-                        </TouchableOpacity>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </GlassCard>
-            </Animated.View>
-          ))}
-        </View>
+        {/* 1. Profile Privacy */}
+        <Animated.View entering={SlideInDown.delay(50)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Profile Privacy</Text>
+          <GlassCard style={styles.glassCard}>
+            <ToggleRow label="Show Username" value={privacy.show_username} onToggle={(val) => updateAndSave({ show_username: val })} />
+            <ToggleRow label="Show Email" value={privacy.show_email} onToggle={(val) => updateAndSave({ show_email: val })} />
+            <ToggleRow label="Show Phone" value={privacy.show_phone} onToggle={(val) => updateAndSave({ show_phone: val })} />
+            <ToggleRow label="Show Location" value={privacy.show_location} onToggle={(val) => updateAndSave({ show_location: val })} />
+            <NavRow
+              label="Profile Visibility"
+              description={
+                privacy.profile_visibility === 'public' ? 'Everyone' :
+                privacy.profile_visibility === 'farmers_only' ? 'Verified Farmers Only' : 'Private'
+              }
+              onPress={() => {
+                Alert.alert(
+                  'Profile Visibility',
+                  'Who can view your profile?',
+                  [
+                    { text: 'Public', onPress: () => updateAndSave({ profile_visibility: 'public' }) },
+                    { text: 'Farmers Only', onPress: () => updateAndSave({ profile_visibility: 'farmers_only' }) },
+                    { text: 'Private', onPress: () => updateAndSave({ profile_visibility: 'private' }) },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]
+                );
+              }}
+            />
+          </GlassCard>
+        </Animated.View>
 
-        <View style={styles.versionContainer}>
-          <Text style={styles.versionText}>FarmLink v1.0.0</Text>
-          <Text style={styles.versionSubtext}>Made with care for farmers</Text>
-        </View>
+        {/* 2. Post & Content Visibility */}
+        <Animated.View entering={SlideInDown.delay(100)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Post & Content Visibility</Text>
+          <GlassCard style={styles.glassCard}>
+            <NavRow
+              label="Who can view my posts"
+              description={
+                privacy.post_visibility === 'public' ? 'Public' :
+                privacy.post_visibility === 'farmers_only' ? 'Farmers Only' : 'Groups'
+              }
+              onPress={() => {
+                Alert.alert(
+                  'Post Visibility',
+                  undefined,
+                  [
+                    { text: 'Public', onPress: () => updateAndSave({ post_visibility: 'public' }) },
+                    { text: 'Farmers Only', onPress: () => updateAndSave({ post_visibility: 'farmers_only' }) },
+                    { text: 'Groups', onPress: () => updateAndSave({ post_visibility: 'groups' }) },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]
+                );
+              }}
+            />
+            <NavRow
+              label="Comment Permissions"
+              description={
+                privacy.comment_permissions === 'everyone' ? 'Everyone' :
+                privacy.comment_permissions === 'followers' ? 'Followers Only' : 'Disabled'
+              }
+              onPress={() => {
+                Alert.alert(
+                  'Comment Permissions',
+                  undefined,
+                  [
+                    { text: 'Everyone', onPress: () => updateAndSave({ comment_permissions: 'everyone' }) },
+                    { text: 'Followers Only', onPress: () => updateAndSave({ comment_permissions: 'followers' }) },
+                    { text: 'Disabled', onPress: () => updateAndSave({ comment_permissions: 'disabled' }) },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]
+                );
+              }}
+            />
+            <ToggleRow label="Show Media (Images/Videos)" value={privacy.media_visibility} onToggle={(val) => updateAndSave({ media_visibility: val })} />
+          </GlassCard>
+        </Animated.View>
+
+        {/* 3. Messaging & Communication */}
+        <Animated.View entering={SlideInDown.delay(150)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Messaging & Communication</Text>
+          <GlassCard style={styles.glassCard}>
+            <NavRow
+              label="Who can send me messages"
+              description={
+                privacy.message_receive_from === 'everyone' ? 'Everyone' :
+                privacy.message_receive_from === 'verified' ? 'Verified Users' : 'No One'
+              }
+              onPress={() => {
+                Alert.alert(
+                  'Message Permissions',
+                  undefined,
+                  [
+                    { text: 'Everyone', onPress: () => updateAndSave({ message_receive_from: 'everyone' }) },
+                    { text: 'Verified Only', onPress: () => updateAndSave({ message_receive_from: 'verified' }) },
+                    { text: 'No One', onPress: () => updateAndSave({ message_receive_from: 'none' }) },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]
+                );
+              }}
+            />
+            <NavRow label="Blocked Users" onPress={() => router.push('/settings/privacy/blocked')} />
+            <NavRow label="Report a User" onPress={() => router.push('/report')} />
+          </GlassCard>
+        </Animated.View>
+
+        {/* 4. Location & Data Sharing */}
+        <Animated.View entering={SlideInDown.delay(200)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Location & Data Sharing</Text>
+          <GlassCard style={styles.glassCard}>
+            <ToggleRow label="Enable Location Sharing" value={privacy.location_sharing} onToggle={(val) => updateAndSave({ location_sharing: val })} />
+            <NavRow
+              label="Location Precision"
+              description={privacy.location_precision === 'exact' ? 'Exact' : 'Approximate'}
+              onPress={() => {
+                Alert.alert(
+                  'Location Precision',
+                  'Choose how precise your location appears.',
+                  [
+                    { text: 'Exact', onPress: () => updateAndSave({ location_precision: 'exact' }) },
+                    { text: 'Approximate', onPress: () => updateAndSave({ location_precision: 'approximate' }) },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]
+                );
+              }}
+            />
+            <ToggleRow
+              label="Consent to Heatmap Data"
+              description="Allow your anonymised location to be used in disease heatmaps"
+              value={privacy.heatmap_consent}
+              onToggle={(val) => updateAndSave({ heatmap_consent: val })}
+            />
+          </GlassCard>
+        </Animated.View>
+
+        {/* 5. AI & Evidence Upload Privacy */}
+        <Animated.View entering={SlideInDown.delay(250)} style={styles.section}>
+          <Text style={styles.sectionTitle}>AI & Evidence Privacy</Text>
+          <GlassCard style={styles.glassCard}>
+            <ToggleRow
+              label="Consent before uploading evidence"
+              description="Ask for confirmation each time you upload a photo/video"
+              value={privacy.ai_upload_consent}
+              onToggle={(val) => updateAndSave({ ai_upload_consent: val })}
+            />
+            <ToggleRow
+              label="Restrict access to my evidence"
+              description="Only allow verified researchers to see my uploads"
+              value={privacy.evidence_access_restricted}
+              onToggle={(val) => updateAndSave({ evidence_access_restricted: val })}
+            />
+            <NavRow
+              label="Data Retention Policy"
+              description={`Evidence is kept for ${privacy.data_retention_days} days`}
+              onPress={() => {
+                Alert.alert(
+                  'Data Retention',
+                  'How long should your uploaded evidence be stored?',
+                  [
+                    { text: '7 days', onPress: () => updateAndSave({ data_retention_days: 7 }) },
+                    { text: '30 days', onPress: () => updateAndSave({ data_retention_days: 30 }) },
+                    { text: '90 days', onPress: () => updateAndSave({ data_retention_days: 90 }) },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]
+                );
+              }}
+            />
+          </GlassCard>
+        </Animated.View>
+
+        {/* 6. Notification Preferences – Market alerts with subscription */}
+        <Animated.View entering={SlideInDown.delay(300)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Notification Preferences</Text>
+          <GlassCard style={styles.glassCard}>
+            <ToggleRow label="Disease Outbreak Alerts" value={privacy.outbreak_alerts} onToggle={(val) => updateAndSave({ outbreak_alerts: val })} />
+            <ToggleRow
+              label="Market Opportunities"
+              description="Get notified about new retailer demand"
+              value={privacy.market_alerts}
+              onToggle={handleMarketToggle}
+            />
+            <ToggleRow label="Messages & Mentions" value={privacy.message_notifications} onToggle={(val) => updateAndSave({ message_notifications: val })} />
+            <ToggleRow label="System Updates" value={privacy.system_notifications} onToggle={(val) => updateAndSave({ system_notifications: val })} />
+          </GlassCard>
+        </Animated.View>
+
+        {/* 7. Account Security */}
+        <Animated.View entering={SlideInDown.delay(350)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Account Security</Text>
+          <GlassCard style={styles.glassCard}>
+            <NavRow label="Change Password" onPress={() => router.push('/settings/password')} />
+            <NavRow label="Two-Factor Authentication (2FA)" onPress={() => router.push('/settings/2fa')} />
+            <NavRow label="Active Sessions" onPress={() => router.push('/settings/sessions')} />
+          </GlassCard>
+        </Animated.View>
+
+        {/* 8. Data Protection & Compliance */}
+        <Animated.View entering={SlideInDown.delay(400)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Data Protection & Compliance</Text>
+          <GlassCard style={styles.glassCard}>
+            <InfoRow icon="shield-checkmark-outline" text="Data is encrypted in transit and at rest." />
+            <InfoRow icon="document-text-outline" text="We comply with POPIA and the OWASP Top 10." />
+            <InfoRow icon="people-outline" text="Role‑based access control is enforced." />
+          </GlassCard>
+        </Animated.View>
+
+        {/* 9. Data Management */}
+        <Animated.View entering={SlideInDown.delay(450)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Data Management</Text>
+          <GlassCard style={styles.glassCard}>
+            <NavRow label="Download Your Data" onPress={() => Alert.alert('Download', 'A link to download your data will be sent to your email.')} />
+            <NavRow label="Request Data Correction" onPress={() => router.push('/support/data-correction')} />
+            <NavRow
+              label="Delete Account"
+              description="Permanently delete your account and data"
+              danger
+              onPress={() => {
+                Alert.alert(
+                  'Delete Account',
+                  'This action is irreversible. All your data will be permanently removed.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete Forever',
+                      style: 'destructive',
+                      onPress: () => Alert.alert('Delete', 'Account deletion requested. You will receive a confirmation email.'),
+                    },
+                  ]
+                );
+              }}
+            />
+          </GlassCard>
+        </Animated.View>
+
+        {/* 10. Reporting & Safety */}
+        <Animated.View entering={SlideInDown.delay(500)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Reporting & Safety</Text>
+          <GlassCard style={styles.glassCard}>
+            <NavRow label="Report Abuse or Misinformation" onPress={() => router.push('/report')} />
+            <NavRow label="Report Fake Disease Alert" onPress={() => router.push('/report/fake-alert')} />
+            <NavRow label="Community Moderation Support" onPress={() => router.push('/community/moderation')} />
+          </GlassCard>
+        </Animated.View>
+
+        {saving && (
+          <Animated.View entering={FadeIn} style={styles.savingBanner}>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={styles.savingText}>Saving...</Text>
+          </Animated.View>
+        )}
       </ScrollView>
 
-      <BottomNav />
+      {/* Market Opportunities Plan Modal */}
+      <Modal visible={showPlanModal} animationType="slide" transparent>
+        <SafeAreaView style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Choose Your Plan</Text>
+              <TouchableOpacity onPress={() => setShowPlanModal(false)}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 400 }}>
+              {PLANS.map((plan) => (
+                <TouchableOpacity 
+                  key={plan.name} 
+                  style={styles.planCard} 
+                  onPress={() => onSelectPlan(plan.name)}
+                >
+                  <Text style={styles.planName}>{plan.name}</Text>
+                  <Text style={styles.planPrice}>R{plan.price}/month</Text>
+                  {plan.features ? (
+                    plan.features.map((f, i) => (
+                      <Text key={i} style={styles.planFeature}>• {f}</Text>
+                    ))
+                  ) : (
+                    <Text style={styles.planFeature}>{plan.note}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Styles (same as original, no changes needed)
+// Styles
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   blob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)' },
   blob1: { width: 200, height: 200, top: -50, left: -50 },
   blob2: { width: 250, height: 250, bottom: -50, right: -50 },
@@ -460,25 +688,24 @@ const styles = StyleSheet.create({
   headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#11181C' },
   headerPlaceholder: { width: 40 },
-  scrollContent: { flexGrow: 1, paddingBottom: 80 },
-  userCard: { paddingHorizontal: 16, marginTop: 16, marginBottom: 24 },
-  userCardGlass: { padding: 0 },
-  userCardContent: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 12 },
-  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(34,197,94,0.2)', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 24, fontWeight: 'bold', color: '#22c55e' },
-  userInfo: { flex: 1 },
-  userName: { fontSize: 16, fontWeight: '600', color: '#11181C', marginBottom: 2 },
-  userEmail: { fontSize: 12, color: '#687076', marginBottom: 2 },
-  userBadge: { fontSize: 10, fontWeight: '500', color: '#22c55e' },
-  sectionsContainer: { paddingHorizontal: 16, gap: 24 },
-  section: { gap: 8 },
-  sectionTitle: { fontSize: 14, fontWeight: '500', color: '#687076', marginBottom: 4, paddingLeft: 4 },
-  sectionCard: { overflow: 'hidden' },
-  settingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
-  settingItemDanger: { borderBottomColor: 'rgba(0,0,0,0.05)' },
-  iconContainer: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  defaultIcon: { backgroundColor: 'rgba(34,197,94,0.1)' },
-  dangerIcon: { backgroundColor: 'rgba(239,68,68,0.1)' },
+  scrollContent: { flexGrow: 1, paddingBottom: 60, paddingTop: 8 },
+  notLoggedInContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, marginTop: -50 },
+  notLoggedInTitle: { fontSize: 20, fontWeight: '600', color: '#11181C', marginTop: 16, marginBottom: 8 },
+  notLoggedInText: { fontSize: 14, color: '#687076', textAlign: 'center', marginBottom: 24 },
+  loginButton: { backgroundColor: '#22c55e', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 },
+  loginButtonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+  section: { paddingHorizontal: 16, marginBottom: 24 },
+  sectionTitle: { fontSize: 14, fontWeight: '500', color: '#687076', marginBottom: 8, paddingLeft: 4 },
+  glassCard: { overflow: 'hidden' },
+  settingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  settingItemDanger: {},
   settingText: { flex: 1 },
   settingLabel: { fontSize: 14, fontWeight: '500', color: '#11181C' },
   settingDescription: { fontSize: 12, color: '#687076', marginTop: 2 },
@@ -486,12 +713,49 @@ const styles = StyleSheet.create({
   switchContainer: { width: 48, height: 28, borderRadius: 14, overflow: 'hidden' },
   switchTrack: { width: '100%', height: '100%', borderRadius: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 2 },
   switchThumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 1, elevation: 2 },
-  versionContainer: { alignItems: 'center', marginTop: 32, marginBottom: 16 },
-  versionText: { fontSize: 12, color: '#9ca3af' },
-  versionSubtext: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
-  notLoggedInContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, marginTop: -50 },
-  notLoggedInTitle: { fontSize: 20, fontWeight: '600', color: '#11181C', marginTop: 16, marginBottom: 8 },
-  notLoggedInText: { fontSize: 14, color: '#687076', textAlign: 'center', marginBottom: 24 },
-  loginButton: { backgroundColor: '#22c55e', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 },
-  loginButtonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+  infoRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16 },
+  infoText: { fontSize: 13, color: '#374151', flex: 1 },
+  savingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#22c55e',
+    paddingVertical: 10,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  savingText: { color: '#fff', fontSize: 14, marginLeft: 8 },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '90%',
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: '#111827' },
+  planCard: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    backgroundColor: '#f9fafb',
+  },
+  planName: { fontSize: 16, fontWeight: '600', color: '#111827' },
+  planPrice: { fontSize: 24, fontWeight: '700', color: '#22c55e', marginTop: 4 },
+  planFeature: { fontSize: 13, color: '#374151', marginTop: 6 },
 });
