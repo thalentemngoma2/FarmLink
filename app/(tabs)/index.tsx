@@ -65,14 +65,13 @@ interface CommunityScan {
 }
 
 // -------------------- AI Configuration --------------------
-const HF_API_KEY = process.env.EXPO_PUBLIC_HF_API_KEY || '';
-const USE_REAL_AI = HF_API_KEY.length > 0;
-const API_URL = 'https://api-inference.huggingface.co/models/Dhiryashil/farm-disease-detection';
+// Use localhost when testing on the same machine; replace with your PC's local IP for physical devices
+const GRADIO_URL = 'http://localhost:7860/predict';
 
 const COMMON_PLANTS = [
   'maize', 'corn', 'tomato', 'avocado', 'wheat', 'rice', 'potato',
   'soybean', 'coffee', 'tea', 'cassava', 'banana', 'orange', 'mango',
-  'cocoa', 'cotton', 'sugarcane', 'grape', 'apple', 'pepper', 'onion'
+  'cocoa', 'cotton', 'sugarcane', 'grape', 'apple', 'pepper', 'onion',
 ];
 
 const doesAnalysisMatchPlant = (analysis: PlantAnalysis, userPlant: string): boolean => {
@@ -142,11 +141,9 @@ export default function FarmLinkPage() {
     }
   };
 
-  // FIXED: fetchCommunityScans – manual join to avoid relationship error
   const fetchCommunityScans = async () => {
     setLoadingCommunity(true);
     try {
-      // 1. Fetch latest 10 scans with user_id
       const { data: scans, error: scansError } = await supabase
         .from('plant_scans')
         .select('id, user_id, plant_name, image_url, analysis_state, created_at')
@@ -160,8 +157,7 @@ export default function FarmLinkPage() {
         return;
       }
 
-      // 2. Collect unique user_ids and fetch usernames from 'users' table
-      const userIds = [...new Set(scans.map(scan => scan.user_id).filter(id => id))];
+      const userIds = [...new Set(scans.map((scan) => scan.user_id).filter((id) => id))];
       let userMap: Record<string, string> = {};
       if (userIds.length > 0) {
         const { data: users, error: usersError } = await supabase
@@ -169,25 +165,29 @@ export default function FarmLinkPage() {
           .select('user_id, username')
           .in('user_id', userIds);
         if (!usersError && users) {
-          userMap = Object.fromEntries(users.map(u => [u.user_id, u.username || 'Anonymous Farmer']));
+          userMap = Object.fromEntries(users.map((u) => [u.user_id, u.username || 'Anonymous Farmer']));
         } else {
           console.warn('Could not fetch usernames:', usersError);
-          // Fallback: use 'Farmer' + last 4 chars of user_id
-          userIds.forEach(id => { userMap[id] = `Farmer_${id.slice(-4)}`; });
+          userIds.forEach((id) => {
+            userMap[id] = `Farmer_${id.slice(-4)}`;
+          });
         }
       }
 
-      // 3. Build community scans array
-      const community: CommunityScan[] = scans.map(scan => ({
+      const community: CommunityScan[] = scans.map((scan) => ({
         id: scan.id,
         farmerName: userMap[scan.user_id] || 'Anonymous Farmer',
-        location: 'Unknown Region', // you can join a location table if available
+        location: 'Unknown Region',
         imageUri: scan.image_url,
         plantName: scan.plant_name,
         analysisState:
-          scan.analysis_state === 'healthy' ? 'Healthy' :
-          scan.analysis_state === 'disease' ? 'Disease detected' :
-          scan.analysis_state === 'undergrowth' ? 'Undergrowth' : 'Overgrowth',
+          scan.analysis_state === 'healthy'
+            ? 'Healthy'
+            : scan.analysis_state === 'disease'
+              ? 'Disease detected'
+              : scan.analysis_state === 'undergrowth'
+                ? 'Undergrowth'
+                : 'Overgrowth',
         timestamp: formatRelativeTime(scan.created_at),
       }));
 
@@ -200,83 +200,40 @@ export default function FarmLinkPage() {
     }
   };
 
-  // Real AI analysis via Hugging Face
+  // Real AI analysis via your own Gradio endpoint
   const analyzeWithRealAI = async (imageUri: string): Promise<PlantAnalysis> => {
+    // Convert image to a blob
     const response = await fetch(imageUri);
     const blob = await response.blob();
-    const reader = new FileReader();
-    const imageBase64 = await new Promise<string>((resolve) => {
-      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-      reader.readAsDataURL(blob);
-    });
-    const result = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${HF_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ inputs: `data:image/jpeg;base64,${imageBase64}` }),
-    });
-    if (!result.ok) throw new Error(`API error ${result.status}`);
-    const aiResult = await result.json();
-    const diseaseName = aiResult.disease || aiResult.label || 'Unknown issue';
-    const confidence = aiResult.confidence || 0.8;
-    let state: PlantState = 'healthy';
-    if (diseaseName.toLowerCase().includes('rust') ||
-        diseaseName.toLowerCase().includes('blight') ||
-        diseaseName.toLowerCase().includes('mildew')) {
-      state = 'disease';
-    } else if (diseaseName.toLowerCase().includes('nutrient') ||
-               diseaseName.toLowerCase().includes('deficiency')) {
-      state = 'undergrowth';
-    } else if (diseaseName.toLowerCase().includes('overgrowth')) {
-      state = 'overgrowth';
-    }
-    return {
-      state,
-      cause: `Detected: ${diseaseName} (confidence ${(confidence * 100).toFixed(0)}%)`,
-      solution: aiResult.recommendation || aiResult.treatment ||
-                'Consult a local agricultural expert for specific treatment.',
-      preventiveTips: aiResult.prevention || 'Regular monitoring and proper crop rotation.',
-    };
-  };
 
-  const mockAnalyzePlant = (): PlantAnalysis => {
-    const states: PlantState[] = ['healthy', 'disease', 'undergrowth', 'overgrowth'];
-    const randomState = states[Math.floor(Math.random() * states.length)];
-    const analysisMap: Record<PlantState, PlantAnalysis> = {
-      healthy: {
-        state: 'healthy',
-        cause: 'No issues detected.',
-        solution: 'Continue current care routine.',
-        preventiveTips: 'Maintain consistent watering and mulching.',
+    // Build FormData with the image
+    const formData = new FormData();
+    formData.append('image', blob, 'leaf.jpg');
+
+    const result = await fetch(GRADIO_URL, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data',
       },
-      disease: {
-        state: 'disease',
-        cause: 'Fungal infection or pest damage.',
-        solution: 'Apply neem oil or copper fungicide.',
-        preventiveTips: 'Water at base, ensure good airflow.',
-      },
-      undergrowth: {
-        state: 'undergrowth',
-        cause: 'Nutrient deficiency or low sunlight.',
-        solution: 'Apply balanced fertilizer, increase light exposure.',
-        preventiveTips: 'Soil test before planting, rotate crops.',
-      },
-      overgrowth: {
-        state: 'overgrowth',
-        cause: 'Excessive nitrogen or lack of pruning.',
-        solution: 'Reduce nitrogen fertilizer, prune overcrowded parts.',
-        preventiveTips: 'Follow fertilizer schedules, space plants properly.',
-      },
-    };
-    return analysisMap[randomState];
+    });
+
+    if (!result.ok) {
+      throw new Error(`Gradio API error ${result.status}`);
+    }
+
+    const gradioResult = await result.json();
+    // gradioResult is an array: [annotated_image_url, analysis_json_string]
+    // We only need the analysis JSON string (second element)
+    const analysisJsonStr = gradioResult[1]; // The text output with JSON
+    const analysis: PlantAnalysis = JSON.parse(analysisJsonStr);
+
+    return analysis;
   };
 
   const uploadAndSaveScan = async (imageUri: string, plantName: string, analysis: PlantAnalysis) => {
     if (!user) throw new Error('User not authenticated');
-    const response = await fetch(imageUri);
-    const blob = await response.blob();
+    const blob = await (await fetch(imageUri)).blob();
     const fileExt = imageUri.split('.').pop() || 'jpg';
     const fileName = `${Date.now()}.${fileExt}`;
     const filePath = `scans/${user.id}/${fileName}`;
@@ -309,6 +266,7 @@ export default function FarmLinkPage() {
       ]);
       return;
     }
+
     if (!plantName.trim()) {
       Alert.alert('Missing Plant Name', 'Please enter the plant name before scanning.');
       return;
@@ -317,13 +275,13 @@ export default function FarmLinkPage() {
     let result;
     if (useCamera) {
       result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'], // updated from MediaTypeOptions to string array
         allowsEditing: true,
         quality: 0.8,
       });
     } else {
       result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'], // updated
         allowsEditing: true,
         quality: 0.8,
       });
@@ -337,41 +295,21 @@ export default function FarmLinkPage() {
       setIsAnalyzing(true);
 
       try {
-        let analysis: PlantAnalysis;
-        if (USE_REAL_AI) {
-          try {
-            analysis = await analyzeWithRealAI(uri);
-            if (!doesAnalysisMatchPlant(analysis, plantName.trim())) {
-              Alert.alert(
-                'Plant Mismatch',
-                `The AI detected a different plant (not "${plantName.trim()}"). Please create a new scan specifically for ${plantName.trim()} and try again.`,
-                [{ text: 'OK', onPress: () => resetPlantModal() }]
-              );
-              setIsAnalyzing(false);
-              setSelectedImage(null);
-              return;
-            }
-          } catch (aiError) {
-            console.error('Real AI failed, falling back to mock:', aiError);
-            analysis = mockAnalyzePlant();
-            Alert.alert('AI Service Unavailable', 'Using mock data for this scan. Please try again later.');
-          }
-        } else {
-          analysis = mockAnalyzePlant();
-          if (!doesAnalysisMatchPlant(analysis, plantName.trim())) {
-            Alert.alert(
-              'Mock Data Warning',
-              `The simulated analysis suggests a different plant than "${plantName.trim()}". In production, the AI would reject this. Please ensure you scan the correct plant.`,
-              [{ text: 'Continue Anyway', style: 'cancel' }, { text: 'Cancel Scan', onPress: () => resetPlantModal() }],
-              { cancelable: false }
-            );
-          }
+        const analysis = await analyzeWithRealAI(uri);
+        if (!doesAnalysisMatchPlant(analysis, plantName.trim())) {
+          Alert.alert(
+            'Plant Mismatch',
+            `The AI detected a different plant (not "${plantName.trim()}"). Please create a new scan specifically for ${plantName.trim()} and try again.`,
+            [{ text: 'OK', onPress: () => resetPlantModal() }]
+          );
+          setIsAnalyzing(false);
+          setSelectedImage(null);
+          return;
         }
 
         await uploadAndSaveScan(uri, plantName.trim(), analysis);
         setAnalysisResult(analysis);
         await fetchUserScans(user.id);
-        // Refresh community scans after new scan
         await fetchCommunityScans();
       } catch (error) {
         console.error('Scan failed', error);
@@ -593,11 +531,6 @@ export default function FarmLinkPage() {
                       </View>
                     )}
                     <View style={styles.pickerContainer}>
-                      {!USE_REAL_AI && (
-                        <View style={styles.mockBadgeContainer}>
-                          <Text style={styles.mockBadgeText}>⚠️ Mock Data Mode – AI service not configured</Text>
-                        </View>
-                      )}
                       <TouchableOpacity
                         style={[styles.pickerButton, !plantName.trim() && styles.pickerButtonDisabled]}
                         onPress={() => openImagePicker(true)}
@@ -754,8 +687,6 @@ const styles = StyleSheet.create({
   pickerButtonDisabled: { opacity: 0.5, borderColor: '#d1d5db', backgroundColor: '#f3f4f6' },
   pickerButtonText: { fontSize: 16, fontWeight: '500', color: '#166534' },
   pickerButtonTextDisabled: { color: '#9ca3af' },
-  mockBadgeContainer: { backgroundColor: '#fef3c7', padding: 8, borderRadius: 12, marginBottom: 8 },
-  mockBadgeText: { fontSize: 12, color: '#d97706', textAlign: 'center' },
   imagePreviewContainer: { alignItems: 'center' },
   previewImage: { width: '100%', height: 250, borderRadius: 20, marginBottom: 16 },
   analyzingContainer: { alignItems: 'center', paddingVertical: 40 },

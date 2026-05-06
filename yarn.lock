@@ -4355,6 +4355,11 @@ expo-router@~6.0.23:
     use-latest-callback "^0.2.1"
     vaul "^1.1.2"
 
+expo-secure-store@~15.0.8:
+  version "15.0.8"
+  resolved "https://registry.npmjs.org/expo-secure-store/-/expo-secure-store-15.0.8.tgz#678065599bb76061b5a85b15b9426bf7a11089ae"
+  integrity sha512-lHnzvRajBu4u+P99+0GEMijQMFCOYpWRO4dWsXSuMt77+THPIGjzNvVKrGSl6mMrLsfVaKL8BpwYZLGlgA+zAw==
+
 expo-server@^1.0.5:
   version "1.0.5"
   resolved "https://registry.npmjs.org/expo-server/-/expo-server-1.0.5.tgz"
@@ -7123,10 +7128,10 @@ react-native-reanimated@~4.1.1:
     react-native-is-edge-to-edge "^1.2.1"
     semver "^7.7.2"
 
-react-native-safe-area-context@~5.6.0:
-  version "5.6.2"
-  resolved "https://registry.npmjs.org/react-native-safe-area-context/-/react-native-safe-area-context-5.6.2.tgz"
-  integrity sha512-4XGqMNj5qjUTYywJqpdWZ9IG8jgkS3h06sfVjfw5yZQZfWnRFXczi0GnYyFyCc2EBps/qFmoCH8fez//WumdVg==
+react-native-safe-area-context@^5.7.0:
+  version "5.7.0"
+  resolved "https://registry.npmjs.org/react-native-safe-area-context/-/react-native-safe-area-context-5.7.0.tgz#035699d5ec17fefb98cc1fa44a9ec852c7d530d0"
+  integrity sha512-/9/MtQz8ODphjsLdZ+GZAIcC/RtoqW9EeShf7Uvnfgm/pzYrJ75y3PV/J1wuAV1T5Dye5ygq4EAW20RoBq0ABQ==
 
 react-native-screens@~4.16.0:
   version "4.16.0"
