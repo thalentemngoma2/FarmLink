@@ -52,9 +52,13 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const updateFormData = (field: string, value: string | boolean) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+   const updateFormData = (field: string, value: string | boolean) => {
+     // Trim string values to prevent whitespace issues
+     if (typeof value === 'string') {
+       value = value.trim();
+     }
+     setFormData(prev => ({ ...prev, [field]: value }));
+   };
 
   const handleNextStep = () => {
     setError('');
@@ -88,7 +92,7 @@ export default function SignupPage() {
     setIsLoading(true);
     try {
       await signup(formData.email, formData.password, formData.fullName, formData.userType, formData.location);
-      router.push(`/verify-otp?email=${encodeURIComponent(formData.email)}`);
+      router.push('/login');
     } catch (err: any) {
       setError(err.message || 'Signup failed. Please try again.');
     } finally {

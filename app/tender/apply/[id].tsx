@@ -170,16 +170,12 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#11181C' },
   scrollContent: { padding: 16, paddingBottom: 100 },
   subtitle: { fontSize: 14, color: '#6b7280', marginBottom: 16, lineHeight: 20 },
-  formCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
+   formCard: {
+     backgroundColor: '#fff',
+     borderRadius: 16,
+     padding: 16,
+     ...Platform.select({ web: { boxShadow: '0px 1px 4px rgba(0,0,0,0.05)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 } }),
+   },
   field: { marginBottom: 16 },
   label: { fontSize: 14, fontWeight: '600', color: '#11181C', marginBottom: 6 },
   input: {

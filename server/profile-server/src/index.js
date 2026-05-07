@@ -37,27 +37,27 @@ app.get('/profile/:userId', async (req, res) => {
 
 // POST /profile - create or update profile
 app.post('/profile', async (req, res) => {
-  const { id, name, avatar, location, joinDate, farmSize, mainCrops, farmingType, stats } = req.body;
+  const { id: userId, name, avatar, location, joinDate, farmSize, mainCrops, farmingType, stats } = req.body;
 
-  if (!id) return res.status(400).json({ error: 'User ID is required' });
+  if (!userId) return res.status(400).json({ error: 'User ID is required' });
 
   try {
     const { data, error } = await supabase
       .from('profiles')
       .upsert({
-        id,
+        user_id: userId,
         name,
         avatar,
         location,
         join_date: joinDate,
         farm_size: farmSize,
         main_crops: mainCrops,
-        farming_type: farmingType,
+        farming_type: farmingType, // Correctly matches renamed column
         questions_count: stats?.questions,
         answers_count: stats?.answers,
         likes_count: stats?.likes,
         updated_at: new Date(),
-      }, { onConflict: 'id' })
+      }, { onConflict: 'user_id' })
       .select()
       .single();
 
@@ -81,6 +81,7 @@ app.get('/profile/:userId/achievements', async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Failed to fetch achievements' });
   }
 });

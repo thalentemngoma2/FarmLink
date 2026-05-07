@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -37,6 +38,13 @@ interface Tender {
   requirements: { id: string; productName: string; quantity: string; gradeQuality: string }[];
 }
 
+type ProfileRow = {
+  user_id: string;
+  name: string | null;
+  location: string | null;
+};
+
+
 const formatTimeAgo = (dateStr: string) => {
   const now = new Date().getTime();
   const date = new Date(dateStr).getTime();
@@ -61,9 +69,9 @@ export default function TendersPage() {
 
   const fetchTenders = useCallback(async () => {
     try {
-      let query = supabase
+    let query = supabase
         .from('tenders')
-        .select('*, profiles:retailer_id(full_name, location), tender_requirements(*)')
+        .select('tender_id, title, description, product_category, quantity_needed, budget_range, delivery_location, delivery_date, deadline, status, retailer_id, created_at, tender_requirements(*)')
         .order('created_at', { ascending: false });
 
       if (selectedCategory !== 'All') {
@@ -76,27 +84,54 @@ export default function TendersPage() {
       const { data, error } = await query;
       if (error) throw error;
 
-      const formattedTenders: Tender[] = (data || []).map((t: any) => ({
-        id: t.tender_id,
-        title: t.title,
-        description: t.description,
-        productCategory: t.product_category,
-        quantityNeeded: t.quantity_needed,
-        budgetRange: t.budget_range,
-        deliveryLocation: t.delivery_location,
-        deliveryDate: t.delivery_date,
-        deadline: t.deadline,
-        status: t.status,
-        retailerName: t.profiles?.full_name || 'Unknown Retailer',
-        retailerCity: t.profiles?.location || '',
-        timeAgo: formatTimeAgo(t.created_at),
-        requirements: (t.tender_requirements || []).map((r: any) => ({
-          id: r.requirement_id,
-          productName: r.product_name,
-          quantity: r.quantity,
-          gradeQuality: r.grade_quality,
-        }))
-      }));
+      // Fetch tenders first (avoid profiles embed joins that can break PostgREST).
+      const tenderRows = data || [];
+
+      // Collect retailer user_ids to look up profiles in a second query.
+      const retailerIds = Array.from(
+        new Set((tenderRows || []).map((t: any) => t.retailer_id).filter(Boolean))
+      );
+
+      let profileById = new Map<string, { name: string | null; location: string | null }>();
+      if (retailerIds.length > 0) {
+        const { data: profileRows, error: profileError } = await supabase
+          .from('profiles')
+          .select('user_id, name, full_name, location')
+          .in('user_id', retailerIds);
+
+
+        if (profileError) throw profileError;
+
+        (profileRows || []).forEach((p: ProfileRow) => {
+          profileById.set(p.user_id, { name: p.name, location: p.location });
+        });
+      }
+
+      const formattedTenders: Tender[] = (tenderRows || []).map((t: any) => {
+        const p = profileById.get(t.retailer_id);
+        return {
+          id: t.tender_id,
+          title: t.title,
+          description: t.description,
+          productCategory: t.product_category,
+          quantityNeeded: t.quantity_needed,
+          budgetRange: t.budget_range,
+          deliveryLocation: t.delivery_location,
+          deliveryDate: t.delivery_date,
+          deadline: t.deadline,
+          status: t.status,
+          retailerName: p?.name || 'Unknown Retailer',
+          retailerCity: p?.location || '',
+          timeAgo: formatTimeAgo(t.created_at),
+          requirements: (t.tender_requirements || []).map((r: any) => ({
+            id: r.requirement_id,
+            productName: r.product_name,
+            quantity: r.quantity,
+            gradeQuality: r.grade_quality,
+          })),
+        };
+      });
+
       setTenders(formattedTenders);
     } catch (error) {
       console.error('Failed to fetch tenders', error);
@@ -293,19 +328,15 @@ const styles = StyleSheet.create({
   categoryText: { fontSize: 13, fontWeight: '500', color: '#4b5563' },
   categoryTextActive: { color: '#fff' },
   tendersSection: { paddingHorizontal: 16, marginTop: 8 },
-  tenderCard: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.15)',
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
+   tenderCard: {
+     backgroundColor: 'rgba(255,255,255,0.9)',
+     borderRadius: 20,
+     borderWidth: 1,
+     borderColor: 'rgba(34,197,94,0.15)',
+     padding: 16,
+     marginBottom: 12,
+     ...Platform.select({ web: { boxShadow: '0px 2px 8px rgba(0,0,0,0.05)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 } }),
+   },
   tenderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
   tenderMeta: { flex: 1 },
   retailerName: { fontSize: 14, fontWeight: '700', color: '#11181C' },

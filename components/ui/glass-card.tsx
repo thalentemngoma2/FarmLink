@@ -1,5 +1,6 @@
 import React, { forwardRef } from 'react';
 import {
+  Platform,
   StyleProp,
   StyleSheet,
   TouchableOpacity,
@@ -129,19 +130,26 @@ export const GlassCard = forwardRef<View, GlassCardProps>(
         onPressOut={handlePressOut}
         {...touchableProps}
       >
-        <Animated.View
-          style={[
-            styles.glassContainer,
-            {
-              borderRadius,
-              backgroundColor: dynamicBackground,
-              shadowOpacity: elevation / 10,
-              elevation,
-            },
-            animatedStyle,
-            style,
-          ]}
-        >
+         <Animated.View
+           style={[
+             styles.glassContainer,
+             {
+               borderRadius,
+               backgroundColor: dynamicBackground,
+               ...(Platform.select({
+                 web: {
+                   boxShadow: `0px 2px ${Math.round(elevation * 2)}px rgba(0,0,0,${(elevation / 10).toFixed(2)})`,
+                 },
+                 default: {
+                   shadowOpacity: elevation / 10,
+                   elevation,
+                 },
+               }) as any),
+             },
+             animatedStyle,
+             style,
+           ]}
+         >
           {/* Gradient overlay for shine */}
           {renderGradient()}
 
@@ -160,7 +168,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.3)',
-    boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
     overflow: 'hidden',
   },
   content: {

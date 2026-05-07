@@ -224,7 +224,7 @@ const styles = StyleSheet.create({
   eyeIcon: { padding: 4 },
   forgotLink: { alignSelf: 'flex-end', marginBottom: 20 },
   forgotText: { fontSize: 13, color: '#22c55e', fontWeight: '500' },
-  loginButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 12, shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 },
+   loginButton: { ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(34,197,94,0.3)' }, default: { shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 } }), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 12 },
   loginButtonDisabled: { opacity: 0.7 },
   loginButtonText: { fontSize: 16, fontWeight: '600', color: 'white' },
   spinner: { width: 20, height: 20, borderWidth: 2, borderColor: 'white', borderTopColor: 'transparent', borderRadius: 10 },

@@ -1,7 +1,7 @@
 // toast.tsx
 import { Ionicons } from '@expo/vector-icons';
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 
 // Extend global object type
@@ -197,20 +197,20 @@ interface ToasterProps {
 export const Toaster: React.FC<ToasterProps> = ({ position = 'top', offset = 16 }) => {
   const { toasts, removeToast } = useToast();
 
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {toasts.map((toast, idx) => (
-        <ToastComponent
-          key={toast.id}
-          toast={toast}
-          onRemove={() => removeToast(toast.id)}
-          index={idx}
-          position={position}
-          offset={offset}
-        />
-      ))}
-    </View>
-  );
+   return (
+     <View style={[StyleSheet.absoluteFill, { pointerEvents: 'box-none' as any }]}>
+       {toasts.map((toast, idx) => (
+         <ToastComponent
+           key={toast.id}
+           toast={toast}
+           onRemove={() => removeToast(toast.id)}
+           index={idx}
+           position={position}
+           offset={offset}
+         />
+       ))}
+     </View>
+   );
 };
 
 // -----------------------------------------------------------------------------
@@ -259,8 +259,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     marginVertical: 4,
-    boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
-    elevation: 3,
+    ...Platform.select({
+      web: {
+        boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
+      },
+      default: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 3,
+      },
+    }),
   },
   icon: {
     marginRight: 12,

@@ -3,6 +3,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -44,7 +45,8 @@ interface TenderDetail {
 
 export default function TenderDetailPage() {
   const { id } = useLocalSearchParams();
-  const { session, user } = useAuth();
+  const { user } = useAuth();
+
   const [tender, setTender] = useState<TenderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasApplied, setHasApplied] = useState(false);
@@ -53,7 +55,7 @@ export default function TenderDetailPage() {
     try {
       const { data, error } = await supabase
         .from('tenders')
-        .select('*, profiles:retailer_id(full_name, location, farm_type), tender_requirements(*)')
+        .select('*, profiles:retailer_id(name, location, farm_type), tender_requirements(*)')
         .eq('tender_id', id)
         .single();
 
@@ -70,8 +72,8 @@ export default function TenderDetailPage() {
         deliveryDate: data.delivery_date,
         deadline: data.deadline,
         status: data.status,
-        retailer: {
-          name: data.profiles?.full_name || 'Unknown',
+          retailer: {
+          name: data.profiles?.name || data.profiles?.full_name || 'Unknown',
           city: data.profiles?.location || '',
           address: '',
           businessType: data.profiles?.farm_type || 'Retailer',
@@ -86,25 +88,27 @@ export default function TenderDetailPage() {
         createdAt: data.created_at,
       });
 
-      if (session?.user?.id) {
+      if (user?.id) {
         const { data: appsData } = await supabase
           .from('tender_applications')
           .select('application_id')
           .eq('tender_id', id)
-          .eq('farmer_id', session.user.id)
+          .eq('farmer_id', user.id)
           .maybeSingle();
         setHasApplied(!!appsData);
       }
+
     } catch (error) {
       console.error('Failed to fetch tender', error);
     } finally {
       setLoading(false);
     }
-  }, [id, session]);
+  }, [id, user]);
+
 
   useEffect(() => {
     if (id) fetchTender();
-  }, [fetchTender]);
+  }, [id, fetchTender]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -286,17 +290,13 @@ const styles = StyleSheet.create({
   backButton: { padding: 4 },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#11181C' },
   scrollContent: { padding: 16, paddingBottom: 100 },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
+   card: {
+     backgroundColor: '#fff',
+     borderRadius: 16,
+     padding: 16,
+     marginBottom: 12,
+     ...Platform.select({ web: { boxShadow: '0px 1px 4px rgba(0,0,0,0.05)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 } }),
+   },
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   statusText: { fontSize: 10, fontWeight: '700' },

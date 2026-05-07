@@ -396,7 +396,7 @@ const styles = StyleSheet.create({
   dangerText: { color: '#ef4444' },
   switchContainer: { width: 48, height: 28, borderRadius: 14, overflow: 'hidden' },
   switchTrack: { width: '100%', height: '100%', borderRadius: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 2 },
-  switchThumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 1, elevation: 2 },
+   switchThumb: { ...Platform.select({ web: { boxShadow: '0px 1px 2px rgba(0,0,0,0.2)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 1, elevation: 2 } }), width: 24, height: 24, borderRadius: 12, backgroundColor: 'white' },
   versionContainer: { alignItems: 'center', marginTop: 32, marginBottom: 16 },
   versionText: { fontSize: 12, color: '#9ca3af' },
   versionSubtext: { fontSize: 10, color: '#9ca3af', marginTop: 4 },

@@ -71,10 +71,13 @@ const achievementsList = [
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { user, logout } = useAuth();
+   const [profile, setProfile] = useState<ProfileData | null>(null);
+   const [achievements, setAchievements] = useState<Achievement[]>([]);
+   const [loading, setLoading] = useState(true);
+   const { user, logout } = useAuth();
+
+   // Determine user role from AuthContext
+   const userRole = user?.role || 'farmer';
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -199,24 +202,34 @@ export default function ProfilePage() {
     );
   }
 
-  // Fallback if profile not loaded
-  const displayProfile = profile || {
-    name: user?.name || 'New User',
-    avatar: (user?.name || 'U').charAt(0).toUpperCase(),
-    location: user?.location || 'Location not set',
-    join_date: user?.createdAt || new Date().toISOString(),
-    farm_size: 'Not set',
-    main_crops: 'Not set',
-    farming_type: 'Not set',
-    questions_count: 0,
-    answers_count: 0,
-    likes_count: 0,
-    isRetailer: user?.role === 'retailer',
-  };
+   // Fallback if profile not loaded
+   const displayProfile = profile || {
+     name: user?.name || 'New User',
+     avatar: (user?.name || 'U').charAt(0).toUpperCase(),
+     location: user?.location || 'Location not set',
+     join_date: user?.createdAt || new Date().toISOString(),
+     farm_size: 'Not set',
+     main_crops: 'Not set',
+     farming_type: 'Not set',
+     questions_count: 0,
+     answers_count: 0,
+     likes_count: 0,
+     isRetailer: userRole === 'retailer',
+   };
 
-  const joinDate = new Date(displayProfile.join_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+   const joinDate = new Date(displayProfile.join_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
 
-  return (
+   // Role label and color
+   const getRoleLabel = () => {
+     switch (userRole) {
+       case 'retailer': return { label: 'Retailer', color: '#3b82f6' };
+       case 'extension_officer': return { label: 'Extension Officer', color: '#f59e0b' };
+       default: return { label: 'Farmer', color: '#22c55e' };
+     }
+   };
+   const roleInfo = getRoleLabel();
+
+   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
         {/* Background (unchanged) */}
@@ -254,17 +267,24 @@ export default function ProfilePage() {
                     <Ionicons name="pencil" size={14} color="#22c55e" />
                   </TouchableOpacity>
                 </View>
-                <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>{displayProfile.name}</Text>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="location-outline" size={12} color="#9ca3af" />
-                    <Text style={styles.infoText}>{displayProfile.location || 'Location not set'}</Text>
-                  </View>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
-                    <Text style={styles.infoText}>Joined {joinDate}</Text>
-                  </View>
-                </View>
+               <View style={styles.profileInfo}>
+                   <View style={styles.nameRow}>
+                     <Text style={styles.profileName}>{displayProfile.name}</Text>
+                     <View style={[styles.roleBadge, { backgroundColor: roleInfo.color + '20' }]}>
+                       <Text style={[styles.roleBadgeText, { color: roleInfo.color }]}>
+                         {roleInfo.label}
+                       </Text>
+                     </View>
+                   </View>
+                   <View style={styles.infoRow}>
+                     <Ionicons name="location-outline" size={12} color="#9ca3af" />
+                     <Text style={styles.infoText}>{displayProfile.location || 'Location not set'}</Text>
+                   </View>
+                   <View style={styles.infoRow}>
+                     <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                     <Text style={styles.infoText}>Joined {joinDate}</Text>
+                   </View>
+                 </View>
               </View>
 
               {/* Stats from API */}
@@ -418,24 +438,23 @@ const styles = StyleSheet.create({
   avatarContainer: { position: 'relative' },
   avatarGradient: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 32, fontWeight: 'bold', color: 'white' },
-  editAvatar: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'white',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  profileInfo: { flex: 1 },
-  profileName: { fontSize: 18, fontWeight: 'bold', color: '#11181C', marginBottom: 4 },
+   editAvatar: {
+     position: 'absolute',
+     bottom: 0,
+     right: 0,
+     width: 28,
+     height: 28,
+     borderRadius: 14,
+     backgroundColor: 'white',
+     alignItems: 'center',
+     justifyContent: 'center',
+     ...Platform.select({ web: { boxShadow: '0px 2px 2px rgba(0,0,0,0.1)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 } }),
+   },
+   profileInfo: { flex: 1 },
+   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
+   profileName: { fontSize: 18, fontWeight: 'bold', color: '#11181C' },
+   roleBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+   roleBadgeText: { fontSize: 11, fontWeight: '600' },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   infoText: { fontSize: 12, color: '#9ca3af' },
   statsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },

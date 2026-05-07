@@ -8,6 +8,7 @@ import { Link, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -303,7 +304,7 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, color: '#687076' },
   notificationsList: { paddingHorizontal: 16, gap: 12, marginBottom: 16 },
   notificationCard: { padding: 0, overflow: 'hidden' },
-  unreadCard: { borderWidth: 1, borderColor: '#22c55e', shadowColor: '#22c55e', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 4 },
+   unreadCard: { borderWidth: 1, borderColor: '#22c55e', ...Platform.select({ web: { boxShadow: '0px 0px 4px rgba(34,197,94,0.2)' }, default: { shadowColor: '#22c55e', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 4 } }) },
   notificationContent: { flexDirection: 'row', padding: 12, gap: 12 },
   iconContainer: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   textContainer: { flex: 1 },

@@ -84,13 +84,32 @@ export const QuestionInput: React.FC<QuestionInputProps> = ({
     const shadowOpacity = isFocused ? 0.2 : 0.08;
     const shadowRadius = isFocused ? 8 : 4;
     const borderColor = isFocused ? 'rgba(34, 197, 94, 0.5)' : 'rgba(255,255,255,0.3)';
-    return {
+    
+    const baseStyle = {
       borderColor,
-      shadowOpacity,
-      shadowRadius,
       // Scale effect for input container (slight pulse on focus)
       transform: [{ scale: inputContainerScale.value }],
     };
+    
+    // Add platform-specific shadow properties
+    if (Platform.OS === 'ios') {
+      return {
+        ...baseStyle,
+        shadowOpacity,
+        shadowRadius,
+      };
+    } else if (Platform.OS === 'android') {
+      // On Android, animate elevation through shadowOpacity mapping
+      // Map shadowOpacity (0.08-0.2) to elevation (2-4)
+      const elevation = isFocused ? 4 : 2;
+      return {
+        ...baseStyle,
+        elevation,
+      };
+    } else {
+      // Web: no animated shadow (handled by static boxShadow in stylesheet)
+      return baseStyle;
+    }
   });
 
   const searchIconAnimatedStyle = useAnimatedStyle(() => ({
@@ -141,14 +160,6 @@ export const QuestionInput: React.FC<QuestionInputProps> = ({
         style={[
           styles.inputContainer,
           inputContainerAnimatedStyle,
-          {
-            borderWidth: 1,
-            backgroundColor: 'rgba(255,255,255,0.7)',
-            borderRadius: 16,
-            overflow: 'hidden',
-            boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
-            elevation: 2,
-          },
         ]}
       >
         <View style={styles.innerContainer}>
@@ -228,6 +239,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.3)',
     overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+      web: {
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+      }
+    }),
   },
   innerContainer: {
     flexDirection: 'row',
@@ -276,11 +301,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#22c55e',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#22c55e',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 2,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#22c55e',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+      web: {
+        boxShadow: '0 2px 8px rgba(34, 197, 94, 0.3)',
+      }
+    }),
   },
   charCounterContainer: {
     borderTopWidth: 1,

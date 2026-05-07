@@ -23,7 +23,7 @@ app.use(express.json());
 // -------------------- Helper functions --------------------
 async function uploadFile(fileBuffer, fileName, folder) {
   const filePath = `${folder}/${Date.now()}_${fileName}`;
-  const { data, error } = await supabase.storage
+  const { error } = await supabase.storage
     .from('farmlink')
     .upload(filePath, fileBuffer, { contentType: 'image/jpeg' });
   if (error) throw error;
@@ -212,14 +212,40 @@ app.post('/posting-server/src/index/:id/like', requireAuth, async (req, res) => 
 app.post('/auth-server/src/index/signup', async (req, res) => {
   const { email, password, name, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-  try {
-    const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { name: name || email.split('@')[0], role: role || 'farmer' } }
-    });
+
+  // Validate role - must be one of the allowed values
+  const validRoles = ['farmer', 'retailer', 'admin', 'extension_officer'];
+  const normalizedRole = ((role || '').trim().toLowerCase());
+  if (!validRoles.includes(normalizedRole)) {
+    return res.status(400).json({ error: `Invalid role: ${role}. Must be one of: ${validRoles.join(', ')}` });
+  }
+
+   try {
+     // Generate a guaranteed globally unique username using UUID
+     const { v4: uuidv4 } = require('uuid');
+     const uniqueSuffix = uuidv4().substring(0, 8);
+     const defaultName = name || `${email.split('@')[0]}_${uniqueSuffix}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+     // Also generate a unique username to prevent collisions from same email prefix
+     const defaultUsername = `${email.split('@')[0]}_${uniqueSuffix}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+     const { data, error } = await supabase.auth.signUp({
+       email, password,
+       options: {
+         data: {
+           name: defaultName,
+           username: defaultUsername,
+           role: normalizedRole,
+           location: ''
+         },
+         emailRedirectTo: undefined
+       }
+     });
     if (error) throw error;
     res.status(201).json({ message: 'Verification email sent', user: data.user });
   } catch (err) {
+    if (err.message && err.message.includes('Database error saving new user')) {
+      return res.status(409).json({ error: 'Username or email already exists. Please try a different one.' });
+    }
     res.status(400).json({ error: err.message });
   }
 });
@@ -739,6 +765,366 @@ app.get('/tender-messages/:tenderId', requireAuth, async (req, res) => {
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+
+// ==================== EXPERT REQUESTS ====================
+
+app.get('/experts', async (req, res) => {
+  // List all available extension officers with their profiles
+  const { data: experts, error } = await supabase
+    .from('users')
+    .select(`
+      user_id,
+      profiles:user_id (name, location, farming_type, bio, avatar)
+    `)
+    .eq('role', 'extension_officer');
+  if (error) return res.status(500).json({ error: error.message });
+  const expertsList = (experts || []).map(e => ({
+    id: e.user_id,
+    name: e.profiles?.name || 'Unknown',
+    location: e.profiles?.location || '',
+    specialty: e.profiles?.farming_type || '',
+    bio: e.profiles?.bio || '',
+    avatar: e.profiles?.avatar || null,
+  }));
+  res.json(expertsList);
+});
+
+app.post('/expert-requests', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  if (role !== 'farmer' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only farmers can send expert requests' });
+  }
+  const { subject, description, category, priority } = req.body;
+  if (!subject || !description) {
+    return res.status(400).json({ error: 'Subject and description are required' });
+  }
+  const { data, error } = await supabase
+    .from('expert_requests')
+    .insert({
+      farmer_id: req.user.id,
+      subject,
+      description,
+      category: category || null,
+      priority: priority || 'medium',
+      status: 'pending',
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Auto-assign to an available expert if any exist
+  try {
+    const { data: assignResult } = await supabase.rpc('assign_request_to_expert', {
+      request_uuid: data.request_id
+    });
+    // If an expert was assigned, refresh the returned data with full join
+    if (assignResult) {
+      const { data: updated } = await supabase
+        .from('expert_requests')
+        .select(`
+          *,
+          expert:expert_id (user_id, profiles:user_id (name, avatar, location)),
+          farmer:farmer_id (user_id, profiles:user_id (name, avatar, location))
+        `)
+        .eq('request_id', data.request_id)
+        .single();
+      return res.status(201).json({ success: true, request: updated });
+    }
+  } catch (assignErr) {
+    // Auto-assignment failed, request remains pending - that's fine
+    console.log('Auto-assignment skipped:', assignErr.message);
+  }
+
+  res.status(201).json({ success: true, request: data });
+});
+
+app.get('/expert-requests', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  let query = supabase
+    .from('expert_requests')
+    .select(`
+      *,
+      expert:expert_id (user_id, profiles:user_id (name, avatar, location)),
+      farmer:farmer_id (user_id, profiles:user_id (name, avatar, location))
+    `)
+    .order('created_at', { ascending: false });
+
+  if (role === 'farmer') {
+    query = query.eq('farmer_id', req.user.id);
+  } else if (role === 'extension_officer') {
+    // Extension officers can view all requests
+  } else if (role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  // admin gets all
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+
+  const requests = data.map(r => ({
+    id: r.request_id,
+    subject: r.subject,
+    description: r.description,
+    category: r.category,
+    priority: r.priority,
+    status: r.status,
+    response: r.response,
+    assignedAt: r.assigned_at,
+    resolvedAt: r.resolved_at,
+    createdAt: r.created_at,
+    expert: r.expert ? {
+      id: r.expert.user_id,
+      name: r.expert.profiles?.name || 'Unknown',
+      location: r.expert.profiles?.location || '',
+      avatar: r.expert.profiles?.avatar || null,
+    } : null,
+    farmer: r.farmer ? {
+      id: r.farmer.user_id,
+      name: r.farmer.profiles?.name || 'Unknown',
+      location: r.farmer.profiles?.location || '',
+      avatar: r.farmer.profiles?.avatar || null,
+    } : null,
+  }));
+  res.json(requests);
+});
+
+app.get('/expert-requests/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const role = await getUserRole(req.user.id);
+
+  const { data, error } = await supabase
+    .from('expert_requests')
+    .select(`
+      *,
+      expert:expert_id (user_id, profiles:user_id (name, avatar, location, farming_type, bio)),
+      farmer:farmer_id (user_id, profiles:user_id (name, avatar, location, farm_size, main_crops))
+    `)
+    .eq('request_id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Authorization: only farmer (owner), assigned expert, or admin can view
+  const isOwner = data.farmer_id === req.user.id;
+  const isAssignedExpert = data.expert_id === req.user.id;
+  const isAdmin = role === 'admin';
+  if (!isOwner && !isAssignedExpert && !isAdmin) {
+    return res.status(403).json({ error: 'Not authorized to view this request' });
+  }
+
+  const request = {
+    id: data.request_id,
+    subject: data.subject,
+    description: data.description,
+    category: data.category,
+    priority: data.priority,
+    status: data.status,
+    response: data.response,
+    assignedAt: data.assigned_at,
+    resolvedAt: data.resolved_at,
+    createdAt: data.created_at,
+    expert: data.expert ? {
+      id: data.expert.user_id,
+      name: data.expert.profiles?.name || 'Unknown',
+      location: data.expert.profiles?.location || '',
+      specialty: data.expert.profiles?.farming_type || '',
+      bio: data.expert.profiles?.bio || '',
+      avatar: data.expert.profiles?.avatar || null,
+    } : null,
+    farmer: {
+      id: data.farmer.user_id,
+      name: data.farmer.profiles?.name || 'Unknown',
+      location: data.farmer.profiles?.location || '',
+      farmSize: data.farmer.profiles?.farm_size || '',
+      mainCrops: data.farmer.profiles?.main_crops || [],
+      avatar: data.farmer.profiles?.avatar || null,
+    },
+  };
+
+  res.json(request);
+});
+
+app.put('/expert-requests/:id/status', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { status, response } = req.body;
+  const role = await getUserRole(req.user.id);
+
+  // Validate status
+  if (status && !['pending', 'assigned', 'in_progress', 'resolved', 'closed'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  // Get current request
+  const { data: request, error: fetchErr } = await supabase
+    .from('expert_requests')
+    .select('*')
+    .eq('request_id', id)
+    .single();
+
+  if (fetchErr) {
+    if (fetchErr.code === 'PGRST116') {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    return res.status(500).json({ error: fetchErr.message });
+  }
+
+  // Authorization: only assigned expert or admin can update status/response
+  const isAssignedExpert = request.expert_id === req.user.id;
+  const isAdmin = role === 'admin';
+  if (!isAssignedExpert && !isAdmin) {
+    return res.status(403).json({ error: 'Only the assigned expert or admin can update this request' });
+  }
+
+  const updates = { updated_at: new Date() };
+  if (status) updates.status = status;
+  if (response !== undefined) updates.response = response;
+
+  if (status === 'assigned' && !request.expert_id) {
+    updates.expert_id = req.user.id;
+    updates.assigned_at = new Date();
+  }
+  if (status === 'resolved') {
+    updates.resolved_at = new Date();
+  }
+
+  const { error } = await supabase
+    .from('expert_requests')
+    .update(updates)
+    .eq('request_id', id);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ success: true });
+});
+
+app.post('/expert-requests/:id/messages', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: 'Message content is required' });
+
+  // Verify requester is participant
+  const { data: request, error: fetchErr } = await supabase
+    .from('expert_requests')
+    .select('farmer_id, expert_id')
+    .eq('request_id', id)
+    .single();
+
+  if (fetchErr) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+
+  const isFarmer = request.farmer_id === req.user.id;
+  const isExpert = request.expert_id === req.user.id;
+  if (!isFarmer && !isExpert) {
+    return res.status(403).json({ error: 'Only the farmer or assigned expert can send messages' });
+  }
+
+  // If request is in a terminal state, disallow new messages
+  if (request.status === 'closed') {
+    return res.status(400).json({ error: 'Cannot send messages to a closed request' });
+  }
+
+  const { data, error } = await supabase
+    .from('expert_request_messages')
+    .insert({
+      request_id: id,
+      sender_id: req.user.id,
+      content,
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ success: true, message: data });
+});
+
+app.get('/expert-requests/:id/messages', requireAuth, async (req, res) => {
+  const { id } = req.params;
+
+  // Verify requester is participant
+  const { data: request, error: fetchErr } = await supabase
+    .from('expert_requests')
+    .select('farmer_id, expert_id')
+    .eq('request_id', id)
+    .single();
+
+  if (fetchErr) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+
+  const isFarmer = request.farmer_id === req.user.id;
+  const isExpert = request.expert_id === req.user.id;
+  if (!isFarmer && !isExpert) {
+    return res.status(403).json({ error: 'Only the farmer and assigned expert can view messages' });
+  }
+
+  const { data, error } = await supabase
+    .from('expert_request_messages')
+    .select(`
+      *,
+      sender:sender_id (
+        user_id,
+        profiles:user_id (name, avatar)
+      )
+    `)
+    .eq('request_id', id)
+    .order('created_at', { ascending: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  const messages = (data || []).map(m => ({
+    id: m.message_id,
+    content: m.content,
+    isRead: m.is_read,
+    createdAt: m.created_at,
+    sender: {
+      id: m.sender.user_id,
+      name: m.sender.profiles?.name || 'Unknown',
+      avatar: m.sender.profiles?.avatar || null,
+    },
+  }));
+
+  res.json(messages);
+});
+
+app.delete('/expert-requests/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+
+  // Get request to check ownership and status
+  const { data: request, error: fetchErr } = await supabase
+    .from('expert_requests')
+    .select('farmer_id, status')
+    .eq('request_id', id)
+    .single();
+
+  if (fetchErr) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+
+  // Only farmer owner can delete, and only if pending or assigned (no messages/responses yet)
+  if (request.farmer_id !== req.user.id) {
+    return res.status(403).json({ error: 'Only the farmer who created this request can delete it' });
+  }
+
+  if (!['pending', 'assigned'].includes(request.status)) {
+    return res.status(400).json({ error: 'Cannot delete a request that is in progress or resolved' });
+  }
+
+  const { error } = await supabase
+    .from('expert_requests')
+    .delete()
+    .eq('request_id', id);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
 });
 
 // ==================== START SERVER ====================

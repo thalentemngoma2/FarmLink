@@ -34,11 +34,11 @@ interface NavItemProps {
   item: NavItemType;
   idx: number;
   pathname: string;
-  itemOpacity: ReturnType<typeof useSharedValue>;
-  itemTranslateY: ReturnType<typeof useSharedValue>;
-  itemScale: ReturnType<typeof useSharedValue>;
-  indicatorScale: ReturnType<typeof useSharedValue>;
-  indicatorOpacity: ReturnType<typeof useSharedValue>;
+  itemOpacity: ReturnType<typeof useSharedValue<number>>;
+  itemTranslateY: ReturnType<typeof useSharedValue<number>>;
+  itemScale: ReturnType<typeof useSharedValue<number>>;
+  indicatorScale: ReturnType<typeof useSharedValue<number>>;
+  indicatorOpacity: ReturnType<typeof useSharedValue<number>>;
 }
 
 const NavItem: React.FC<NavItemProps> = ({
@@ -150,7 +150,7 @@ export const BottomNav: React.FC = () => {
       { icon: 'home-outline', label: 'Home', href: '/community' },
       { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
       { icon: centerIcon, label: centerLabel, href: '/tender/post', isPrimary: true },
-      { icon: 'book-outline', label: 'Learn', href: '/learn' },
+
       { icon: 'person-outline', label: 'Profile', href: '/profile' },
     ];
   }, [user?.role]);
@@ -204,6 +204,7 @@ export const BottomNav: React.FC = () => {
     navTranslateY.value = withTiming(0, { duration: 300 });
     navOpacity.value = withTiming(1, { duration: 300 });
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     navItems.forEach((_, idx) => {
       const delay = 300 + idx * 50;
       itemOpacities[idx].value = withDelay(delay, withTiming(1, { duration: 300 }));

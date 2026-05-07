@@ -1,5 +1,6 @@
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -26,7 +27,7 @@ import Animated, {
 
 export default function VerifyOTPPage() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ email?: string }>();
+  const params = useLocalSearchParams<{ email?: string; userType?: string }>();
   const { verifyOTP } = useAuth();
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +47,22 @@ export default function VerifyOTPPage() {
     setIsLoading(true);
     try {
       await verifyOTP(params.email, otp);
+      
+      // Save selected role to public.users table
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && params.userType) {
+        const { error } = await supabase
+          .from('users')
+          .upsert({ 
+            user_id: user.id, 
+            role: params.userType as string,
+            username: user.email?.split('@')[0] || ''
+          });
+        if (error) {
+          console.error('Failed to save user role:', error);
+        }
+      }
+      
       router.replace('/login?verified=true');
     } catch (err: any) {
       setError(err.message || 'Verification failed. Please check your code.');
@@ -105,7 +122,7 @@ export default function VerifyOTPPage() {
           </Animated.View>
           <Text style={styles.title}>Verify Email</Text>
           <Text style={styles.subtitle}>
-            We've sent a verification code to{' '}
+            We&apos;ve sent a verification code to{' '}
             <Text style={styles.emailText}>{params.email || 'your email'}</Text>
           </Text>
         </Animated.View>
@@ -202,7 +219,7 @@ const styles = StyleSheet.create({
   inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)', borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.5)', paddingHorizontal: 12 },
   inputIcon: { marginRight: 8 },
   input: { flex: 1, paddingVertical: 12, fontSize: 14, color: '#11181C' },
-  verifyButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 12, shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 },
+   verifyButton: { ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(34,197,94,0.3)' }, default: { shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 } }), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 12 },
   verifyButtonDisabled: { opacity: 0.7 },
   verifyButtonText: { fontSize: 16, fontWeight: '600', color: 'white' },
   spinner: { width: 20, height: 20, borderWidth: 2, borderColor: 'white', borderTopColor: 'transparent', borderRadius: 10 },

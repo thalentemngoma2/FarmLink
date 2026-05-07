@@ -257,13 +257,13 @@ const TikTokBottomSheet = forwardRef<BottomSheetRef, TikTokBottomSheetProps>(
 
     if (!isVisible) return null;
 
-    return (
-      <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-        <TapGestureHandler onHandlerStateChange={handleBackdropTap}>
-          <Animated.View
-            style={[styles.backdrop, backdropAnimatedStyle]}
-            pointerEvents="auto"
-          >
+     return (
+       <View style={[StyleSheet.absoluteFillObject, { pointerEvents: 'box-none' as any }]}>
+         <TapGestureHandler onHandlerStateChange={handleBackdropTap}>
+           <Animated.View
+             style={[styles.backdrop, backdropAnimatedStyle]}
+             pointerEvents="auto"
+           >
             <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} />
           </Animated.View>
         </TapGestureHandler>
@@ -1021,21 +1021,17 @@ const styles = StyleSheet.create({
   filterButton: { padding: 4 },
   tabsContainer: { paddingHorizontal: 16, gap: 8, marginBottom: 16 },
   tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.6)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)' },
-  tabActive: { backgroundColor: '#22c55e', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+   tabActive: { backgroundColor: '#22c55e', ...Platform.select({ web: { boxShadow: '0px 2px 8px rgba(0,0,0,0.1)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 } }) },
   tabText: { fontSize: 14, fontWeight: '500', color: '#687076' },
   tabTextActive: { color: '#fff' },
   flatListContainer: { paddingHorizontal: 16, paddingTop: 90, gap: 16 },
-  simpleCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
+   simpleCard: {
+     backgroundColor: '#ffffff',
+     borderRadius: 16,
+     overflow: 'hidden',
+     marginBottom: 16,
+     ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(0,0,0,0.05)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 } }),
+   },
   simpleContent: { padding: 16 },
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   avatarText: { fontSize: 24, backgroundColor: '#22c55e', width: 40, height: 40, borderRadius: 20, textAlign: 'center', textAlignVertical: 'center', overflow: 'hidden', color: 'white' },
@@ -1052,7 +1048,7 @@ const styles = StyleSheet.create({
   stat: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statText: { fontSize: 14, color: '#11181C', fontWeight: '500' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
-  bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, height: SCREEN_HEIGHT, backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 20 },
+   bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, height: SCREEN_HEIGHT, backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, ...Platform.select({ web: { boxShadow: '0px -4px 12px rgba(0,0,0,0.1)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 20 } }) },
   handleBar: { width: 40, height: 5, backgroundColor: '#d1d5db', borderRadius: 3, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
   bottomSheetContent: { flex: 1 },
   commentsSheetContainer: { flex: 1, backgroundColor: '#fff' },
@@ -1103,6 +1099,6 @@ const styles = StyleSheet.create({
   commentInput: { flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, color: '#11181C', maxHeight: 100, backgroundColor: '#f9fafb' },
   sendButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center' },
   sendButtonDisabled: { backgroundColor: '#f3f4f6' },
-  messageFab: { position: 'absolute', bottom: 90, right: 20, backgroundColor: '#22c55e', width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, zIndex: 100 },
+   messageFab: { position: 'absolute', bottom: 90, right: 20, backgroundColor: '#22c55e', width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(0,0,0,0.25)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 } }), zIndex: 100 },
   modalOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#fff', zIndex: 200 },
 });

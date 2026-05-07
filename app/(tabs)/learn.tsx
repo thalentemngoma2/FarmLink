@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import {
   Dimensions,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -357,7 +358,7 @@ const styles = StyleSheet.create({
   statDivider: { width: 1, height: 24, backgroundColor: '#e5e7eb' },
   tabsContainer: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 16 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.6)', alignItems: 'center' },
-  tabActive: { backgroundColor: '#22c55e', shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 },
+   tabActive: { backgroundColor: '#22c55e', ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(34,197,94,0.3)' }, default: { shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 } }) },
   tabText: { fontSize: 14, fontWeight: '500', color: '#687076' },
   tabTextActive: { color: 'white' },
   coursesGrid: { paddingHorizontal: 12, gap: 12 },
