@@ -3,13 +3,14 @@ import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   Image,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -64,26 +65,24 @@ interface CommunityScan {
   timestamp: string;
 }
 
-// -------------------- AI Configuration --------------------
-// Use localhost when testing on the same machine; replace with your PC's local IP for physical devices
-const GRADIO_URL = 'http://localhost:7860/predict';
+interface TrefleSearchResult {
+  id: number;
+  common_name: string;
+  scientific_name: string;
+  slug: string;
+  image_url: string;
+  family_common_name: string;
+  family: string;
+}
 
-const COMMON_PLANTS = [
-  'maize', 'corn', 'tomato', 'avocado', 'wheat', 'rice', 'potato',
-  'soybean', 'coffee', 'tea', 'cassava', 'banana', 'orange', 'mango',
-  'cocoa', 'cotton', 'sugarcane', 'grape', 'apple', 'pepper', 'onion',
-];
+// -------------------- Configuration --------------------
+const GRADIO_URL = Platform.select({
+  android: 'http://10.0.2.2:7860/predict',
+  default: 'http://localhost:7860/predict',
+});
 
-const doesAnalysisMatchPlant = (analysis: PlantAnalysis, userPlant: string): boolean => {
-  const lowerUserPlant = userPlant.toLowerCase().trim();
-  const combinedText = `${analysis.cause} ${analysis.solution} ${analysis.preventiveTips}`.toLowerCase();
-  for (const plant of COMMON_PLANTS) {
-    if (plant !== lowerUserPlant && combinedText.includes(plant)) {
-      return false;
-    }
-  }
-  return true;
-};
+const TREFLE_PROXY_URL =
+  'https://dzqiazdlhrngboqmcyvm.supabase.co/functions/v1/trefle-proxy';
 
 export default function FarmLinkPage() {
   const { user } = useAuth();
@@ -96,6 +95,17 @@ export default function FarmLinkPage() {
   const [scanHistory, setScanHistory] = useState<UserScan[]>([]);
   const [communityScans, setCommunityScans] = useState<CommunityScan[]>([]);
   const [loadingCommunity, setLoadingCommunity] = useState(false);
+
+  // Trefle states
+  const [trefleSuggestions, setTrefleSuggestions] = useState<TrefleSearchResult[]>([]);
+  const [isSearchingTrefle, setIsSearchingTrefle] = useState(false);
+  const [trefleDetail, setTrefleDetail] = useState<{
+    scientific_name: string;
+    family: string;
+    image: string;
+    description: string;
+  } | null>(null);
+  const searchTimeout = useRef<any>(null);
 
   // Request permissions
   useEffect(() => {
@@ -121,20 +131,21 @@ export default function FarmLinkPage() {
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      const scans: UserScan[] = (data || []).map((scan: any) => ({
-        id: scan.id,
-        plantName: scan.plant_name,
-        imageUri: scan.image_url,
-        analysis: {
-          state: scan.analysis_state,
-          cause: scan.analysis_cause,
-          solution: scan.analysis_solution,
-          preventiveTips: scan.analysis_preventive,
-        },
-        timestamp: scan.created_at,
-        synced: true,
-      }));
-      setScanHistory(scans);
+      setScanHistory(
+        (data || []).map((scan: any) => ({
+          id: String(scan.id),
+          plantName: String(scan.plant_name || ''),
+          imageUri: String(scan.image_url || ''),
+          analysis: {
+            state: scan.analysis_state as PlantState,
+            cause: String(scan.analysis_cause || ''),
+            solution: String(scan.analysis_solution || ''),
+            preventiveTips: String(scan.analysis_preventive || ''),
+          },
+          timestamp: String(scan.created_at || ''),
+          synced: true,
+        }))
+      );
     } catch (error) {
       console.error('Failed to load scans', error);
       Alert.alert('Error', 'Could not load your scan history');
@@ -149,15 +160,12 @@ export default function FarmLinkPage() {
         .select('id, user_id, plant_name, image_url, analysis_state, created_at')
         .order('created_at', { ascending: false })
         .limit(10);
-
       if (scansError) throw scansError;
       if (!scans || scans.length === 0) {
         setCommunityScans([]);
-        setLoadingCommunity(false);
         return;
       }
-
-      const userIds = [...new Set(scans.map((scan) => scan.user_id).filter((id) => id))];
+      const userIds = [...new Set(scans.map((s) => s.user_id).filter(Boolean))];
       let userMap: Record<string, string> = {};
       if (userIds.length > 0) {
         const { data: users, error: usersError } = await supabase
@@ -165,33 +173,34 @@ export default function FarmLinkPage() {
           .select('user_id, username')
           .in('user_id', userIds);
         if (!usersError && users) {
-          userMap = Object.fromEntries(users.map((u) => [u.user_id, u.username || 'Anonymous Farmer']));
-        } else {
-          console.warn('Could not fetch usernames:', usersError);
-          userIds.forEach((id) => {
-            userMap[id] = `Farmer_${id.slice(-4)}`;
+          users.forEach((u: any) => {
+            userMap[String(u.user_id)] = String(u.username || 'Anonymous Farmer');
           });
         }
+        userIds.forEach((id) => {
+          if (!userMap[id]) userMap[id] = `Farmer_${id.slice(-4)}`;
+        });
       }
-
-      const community: CommunityScan[] = scans.map((scan) => ({
-        id: scan.id,
-        farmerName: userMap[scan.user_id] || 'Anonymous Farmer',
-        location: 'Unknown Region',
-        imageUri: scan.image_url,
-        plantName: scan.plant_name,
-        analysisState:
-          scan.analysis_state === 'healthy'
-            ? 'Healthy'
-            : scan.analysis_state === 'disease'
+      setCommunityScans(
+        scans.map((scan: any) => ({
+          id: String(scan.id),
+          farmerName: userMap[scan.user_id] || 'Anonymous Farmer',
+          location: 'Unknown Region',
+          imageUri: String(scan.image_url || ''),
+          plantName: String(scan.plant_name || ''),
+          analysisState:
+            scan.analysis_state === 'healthy'
+              ? 'Healthy'
+              : scan.analysis_state === 'disease'
               ? 'Disease detected'
               : scan.analysis_state === 'undergrowth'
-                ? 'Undergrowth'
-                : 'Overgrowth',
-        timestamp: formatRelativeTime(scan.created_at),
-      }));
-
-      setCommunityScans(community);
+              ? 'Undergrowth'
+              : scan.analysis_state === 'overgrowth'
+              ? 'Overgrowth'
+              : 'Unknown',
+          timestamp: formatRelativeTime(scan.created_at),
+        }))
+      );
     } catch (error) {
       console.error('Failed to load community scans', error);
       Alert.alert('Error', 'Could not load community scans');
@@ -200,15 +209,80 @@ export default function FarmLinkPage() {
     }
   };
 
-  // Real AI analysis via your own Gradio endpoint
-  const analyzeWithRealAI = async (imageUri: string): Promise<PlantAnalysis> => {
-    // Convert image to a blob
-    const response = await fetch(imageUri);
-    const blob = await response.blob();
+  // ---------- Trefle API helpers ----------
+  const sanitiseTreflePlant = (plant: any): TrefleSearchResult => ({
+    id: typeof plant.id === 'number' ? plant.id : 0,
+    common_name: typeof plant.common_name === 'string' ? plant.common_name : '',
+    scientific_name: typeof plant.scientific_name === 'string' ? plant.scientific_name : '',
+    slug: typeof plant.slug === 'string' ? plant.slug : '',
+    image_url: typeof plant.image_url === 'string' ? plant.image_url : '',
+    family_common_name: typeof plant.family_common_name === 'string' ? plant.family_common_name : (typeof plant.family === 'string' ? plant.family : ''),
+    family: typeof plant.family === 'string' ? plant.family : '',
+  });
 
-    // Build FormData with the image
+  const searchTrefle = async (query: string) => {
+    if (!query || query.length < 2) {
+      setTrefleSuggestions([]);
+      return;
+    }
+    setIsSearchingTrefle(true);
+    try {
+      const response = await fetch(`${TREFLE_PROXY_URL}?type=search&q=${encodeURIComponent(query)}`);
+      const json = await response.json();
+      if (Array.isArray(json.data)) {
+        setTrefleSuggestions(json.data.slice(0, 5).map(sanitiseTreflePlant));
+      } else {
+        setTrefleSuggestions([]);
+      }
+    } catch (error) {
+      console.log('Trefle search error:', error);
+      setTrefleSuggestions([]);
+    } finally {
+      setIsSearchingTrefle(false);
+    }
+  };
+
+  const getTrefleDetail = async (slug: string) => {
+    if (!slug) return;
+    try {
+      const response = await fetch(`${TREFLE_PROXY_URL}?type=detail&slug=${slug}`);
+      const json = await response.json();
+      if (json.data && typeof json.data === 'object') {
+        const plant = json.data;
+        setTrefleDetail({
+          scientific_name: typeof plant.scientific_name === 'string' ? plant.scientific_name : '',
+          family: typeof plant.family_common_name === 'string' ? plant.family_common_name : (typeof plant.family === 'string' ? plant.family : ''),
+          image: typeof plant.image_url === 'string' ? plant.image_url : '',
+          description: typeof plant.species_description === 'string' ? plant.species_description : (typeof plant.description === 'string' ? plant.description : 'No description available.'),
+        });
+      }
+    } catch (error) {
+      console.log('Trefle detail error:', error);
+    }
+  };
+
+  const handlePlantNameChange = (text: string) => {
+    setPlantName(text);
+    setTrefleDetail(null);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => searchTrefle(text), 500);
+  };
+
+  const selectTrefleSuggestion = (item: TrefleSearchResult) => {
+    setPlantName(item.common_name || item.scientific_name);
+    setTrefleSuggestions([]);
+    getTrefleDetail(item.slug);
+  };
+
+  // ---------- AI analysis (sends file URI directly) ----------
+  const analyzeWithRealAI = async (imageUri: string): Promise<PlantAnalysis> => {
+    // Use file URI directly in FormData – no Blob needed
     const formData = new FormData();
-    formData.append('image', blob, 'leaf.jpg');
+    formData.append('image', {
+      uri: imageUri,
+      name: 'leaf.jpg',
+      type: 'image/jpeg',
+    } as any);
 
     const result = await fetch(GRADIO_URL, {
       method: 'POST',
@@ -223,38 +297,30 @@ export default function FarmLinkPage() {
     }
 
     const gradioResult = await result.json();
-    // gradioResult is an array: [annotated_image_url, analysis_json_string]
-    // We only need the analysis JSON string (second element)
-    const analysisJsonStr = gradioResult[1]; // The text output with JSON
-    const analysis: PlantAnalysis = JSON.parse(analysisJsonStr);
-
-    return analysis;
+    return JSON.parse(gradioResult[1]) as PlantAnalysis;
   };
 
-  const uploadAndSaveScan = async (imageUri: string, plantName: string, analysis: PlantAnalysis) => {
-    if (!user) throw new Error('User not authenticated');
-    const blob = await (await fetch(imageUri)).blob();
-    const fileExt = imageUri.split('.').pop() || 'jpg';
-    const fileName = `${Date.now()}.${fileExt}`;
-    const filePath = `scans/${user.id}/${fileName}`;
-    const { error: uploadError } = await supabase.storage
-      .from('farmlink')
-      .upload(filePath, blob, { contentType: 'image/jpeg' });
+  const uploadAndSaveScan = async (imageUri: string, plant: string, analysis: PlantAnalysis) => {
+    if (!user) throw new Error('Not authenticated');
+    // Upload to Supabase Storage using the URI directly
+    const ext = imageUri.split('.').pop() || 'jpg';
+    const path = `scans/${user.id}/${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage.from('farmlink').upload(path, imageUri, {
+      contentType: 'image/jpeg',
+    });
     if (uploadError) throw uploadError;
-    const { data: publicUrlData } = supabase.storage.from('farmlink').getPublicUrl(filePath);
-    const imageUrl = publicUrlData.publicUrl;
-    const { error: insertError } = await supabase
-      .from('plant_scans')
-      .insert({
-        user_id: user.id,
-        plant_name: plantName,
-        image_url: imageUrl,
-        analysis_state: analysis.state,
-        analysis_cause: analysis.cause,
-        analysis_solution: analysis.solution,
-        analysis_preventive: analysis.preventiveTips,
-        created_at: new Date(),
-      });
+    const { data: urlData } = supabase.storage.from('farmlink').getPublicUrl(path);
+    const imageUrl = urlData.publicUrl;
+    const { error: insertError } = await supabase.from('plant_scans').insert({
+      user_id: user.id,
+      plant_name: plant,
+      image_url: imageUrl,
+      analysis_state: analysis.state,
+      analysis_cause: analysis.cause,
+      analysis_solution: analysis.solution,
+      analysis_preventive: analysis.preventiveTips,
+      created_at: new Date(),
+    });
     if (insertError) throw insertError;
   };
 
@@ -266,54 +332,31 @@ export default function FarmLinkPage() {
       ]);
       return;
     }
-
     if (!plantName.trim()) {
       Alert.alert('Missing Plant Name', 'Please enter the plant name before scanning.');
       return;
     }
-
     let result;
     if (useCamera) {
-      result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'], // updated from MediaTypeOptions to string array
-        allowsEditing: true,
-        quality: 0.8,
-      });
+      result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     } else {
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'], // updated
-        allowsEditing: true,
-        quality: 0.8,
-      });
+      result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     }
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
+    if (!result.canceled && result.assets?.length) {
       const uri = result.assets[0].uri;
       setSelectedImage(uri);
       setAnalysisResult(null);
       setFeedbackGiven(false);
       setIsAnalyzing(true);
-
       try {
         const analysis = await analyzeWithRealAI(uri);
-        if (!doesAnalysisMatchPlant(analysis, plantName.trim())) {
-          Alert.alert(
-            'Plant Mismatch',
-            `The AI detected a different plant (not "${plantName.trim()}"). Please create a new scan specifically for ${plantName.trim()} and try again.`,
-            [{ text: 'OK', onPress: () => resetPlantModal() }]
-          );
-          setIsAnalyzing(false);
-          setSelectedImage(null);
-          return;
-        }
-
         await uploadAndSaveScan(uri, plantName.trim(), analysis);
         setAnalysisResult(analysis);
         await fetchUserScans(user.id);
         await fetchCommunityScans();
       } catch (error) {
         console.error('Scan failed', error);
-        Alert.alert('Error', 'Failed to analyze plant. Please try again.');
+        Alert.alert('Error', 'Failed to analyze plant. Is the Gradio server running?');
       } finally {
         setIsAnalyzing(false);
       }
@@ -333,9 +376,11 @@ export default function FarmLinkPage() {
     setAnalysisResult(null);
     setIsAnalyzing(false);
     setFeedbackGiven(false);
+    setTrefleSuggestions([]);
+    setTrefleDetail(null);
   };
 
-  // Background animations
+  // Background animations (unchanged)
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
   useEffect(() => {
@@ -521,9 +566,33 @@ export default function FarmLinkPage() {
                       placeholder="e.g. Avocado, Tomato, Maize"
                       placeholderTextColor="#9ca3af"
                       value={plantName}
-                      onChangeText={setPlantName}
+                      onChangeText={handlePlantNameChange}
                       autoFocus
                     />
+                    {isSearchingTrefle && <ActivityIndicator size="small" color="#22c55e" style={{ marginTop: 8 }} />}
+                    {trefleSuggestions.length > 0 && (
+                      <View style={styles.suggestionsContainer}>
+                        {trefleSuggestions.map((item) => (
+                          <TouchableOpacity key={item.id} style={styles.suggestionItem} onPress={() => selectTrefleSuggestion(item)}>
+                            <Text style={styles.suggestionText}>
+                              {item.common_name || item.scientific_name}
+                              {item.scientific_name ? ` (${item.scientific_name})` : ''}
+                            </Text>
+                            <Text style={styles.suggestionFamily}>{item.family_common_name || item.family}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                    {trefleDetail && (
+                      <View style={styles.trefleDetailCard}>
+                        {trefleDetail.image ? (
+                          <Image source={{ uri: trefleDetail.image }} style={styles.trefleDetailImage} />
+                        ) : null}
+                        <Text style={styles.trefleDetailTitle}>{trefleDetail.scientific_name}</Text>
+                        <Text style={styles.trefleDetailFamily}>{trefleDetail.family}</Text>
+                        <Text style={styles.trefleDetailDesc} numberOfLines={3}>{trefleDetail.description}</Text>
+                      </View>
+                    )}
                     {plantName.trim() !== '' && (
                       <View style={styles.targetPlantBadge}>
                         <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
@@ -626,7 +695,6 @@ const styles = StyleSheet.create({
   heroIconGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   heroTitle: { fontSize: 28, fontWeight: 'bold', color: '#11181C', textAlign: 'center', marginBottom: 8 },
   heroSubtitle: { fontSize: 14, color: '#687076', textAlign: 'center', paddingHorizontal: 32, lineHeight: 20 },
-
   plantMonitorCard: { marginHorizontal: 16, marginTop: 8, marginBottom: 24, borderRadius: 24, overflow: 'hidden', shadowColor: '#22c55e', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 4 },
   plantMonitorGradient: { borderRadius: 24, borderWidth: 1, borderColor: 'rgba(34,197,94,0.3)' },
   plantMonitorContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 },
@@ -635,7 +703,6 @@ const styles = StyleSheet.create({
   plantMonitorDesc: { fontSize: 13, color: '#4b5563' },
   plantMonitorButton: { backgroundColor: '#22c55e', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 40, shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 },
   plantMonitorButtonText: { color: 'white', fontWeight: '600', fontSize: 14 },
-
   historySection: { marginHorizontal: 16, marginTop: 8, marginBottom: 24 },
   historyHeader: { marginBottom: 20 },
   historyTitle: { fontSize: 22, fontWeight: '700', color: '#11181C', marginBottom: 6 },
@@ -650,12 +717,10 @@ const styles = StyleSheet.create({
   cardPlantName: { fontSize: 16, fontWeight: '700', color: '#11181C', marginBottom: 4 },
   cardTimestamp: { fontSize: 12, color: '#6b7280', marginBottom: 6 },
   cardCause: { fontSize: 13, color: '#4b5563' },
-
   emptyStateContainer: { alignItems: 'center', backgroundColor: 'rgba(34,197,94,0.05)', borderRadius: 24, padding: 24, marginBottom: 24, borderWidth: 1, borderColor: 'rgba(34,197,94,0.2)' },
   emptyStateTitle: { fontSize: 16, fontWeight: '600', color: '#166534', textAlign: 'center', marginVertical: 12 },
   emptyStateButton: { backgroundColor: '#22c55e', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 40, marginTop: 8 },
   emptyStateButtonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-
   communityHeader: { marginBottom: 12 },
   communityTitle: { fontSize: 18, fontWeight: '600', color: '#11181C' },
   communityCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(34,197,94,0.2)', padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
@@ -670,7 +735,6 @@ const styles = StyleSheet.create({
   communityStatus: { fontSize: 12, fontWeight: '500', color: '#374151' },
   communityTime: { fontSize: 12, color: '#9ca3af', marginLeft: 4 },
   communityImage: { width: 60, height: 60, borderRadius: 12, resizeMode: 'cover' },
-
   modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalContent: { backgroundColor: 'white', borderRadius: 32, width: '100%', maxHeight: '90%', padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 10 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
@@ -709,4 +773,14 @@ const styles = StyleSheet.create({
   feedbackButtonText: { fontSize: 14, fontWeight: '500' },
   newScanButton: { backgroundColor: '#22c55e', paddingVertical: 14, borderRadius: 40, alignItems: 'center', marginTop: 8, marginBottom: 20 },
   newScanButtonText: { color: 'white', fontWeight: '700', fontSize: 16 },
+  // Trefle styles
+  suggestionsContainer: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, marginTop: 8, maxHeight: 200 },
+  suggestionItem: { paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  suggestionText: { fontSize: 15, fontWeight: '600', color: '#11181C' },
+  suggestionFamily: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+  trefleDetailCard: { backgroundColor: '#f0fdf4', borderRadius: 16, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#bbf7d0' },
+  trefleDetailImage: { width: '100%', height: 150, borderRadius: 12, marginBottom: 8 },
+  trefleDetailTitle: { fontSize: 16, fontWeight: '700', color: '#166534' },
+  trefleDetailFamily: { fontSize: 13, color: '#4b5563', marginBottom: 4 },
+  trefleDetailDesc: { fontSize: 13, color: '#374151' },
 });

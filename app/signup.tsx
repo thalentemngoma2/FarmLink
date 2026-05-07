@@ -29,7 +29,8 @@ import Animated, {
 
 const userTypes = [
   { id: 'farmer', label: 'Farmer', description: 'I grow crops and raise livestock' },
-  { id: 'expert', label: 'Expert', description: 'I provide agricultural advice' },
+  { id: 'retailer', label: 'Retailer', description: 'I buy and sell farm produce' },
+  { id: 'extension_officer', label: 'Extension Officer', description: 'I provide agricultural advisory services' },
 ];
 
 export default function SignupPage() {
@@ -86,9 +87,13 @@ export default function SignupPage() {
 
     setIsLoading(true);
     try {
-      // Call the signup method from AuthContext
-      await signup(formData.email, formData.password, formData.fullName);
-      // After successful signup, redirect to OTP verification page with email
+      // Pass role to the signup function (make sure AuthContext.signup accepts a fourth argument)
+      await signup(
+        formData.email,
+        formData.password,
+        formData.fullName,
+        formData.userType        // 🔑 role passed as string
+      );
       router.push(`/verify-otp?email=${encodeURIComponent(formData.email)}`);
     } catch (err: any) {
       setError(err.message || 'Signup failed. Please try again.');
@@ -194,7 +199,7 @@ export default function SignupPage() {
                       <Ionicons name="person-outline" size={20} color="#9ca3af" style={styles.inputIcon} />
                       <TextInput
                         style={styles.input}
-                        placeholder="John Doe"
+                        placeholder="Name Surname"
                         placeholderTextColor="#9ca3af"
                         value={formData.fullName}
                         onChangeText={(val) => updateFormData('fullName', val)}
@@ -226,7 +231,7 @@ export default function SignupPage() {
                       <Ionicons name="call-outline" size={20} color="#9ca3af" style={styles.inputIcon} />
                       <TextInput
                         style={styles.input}
-                        placeholder="+255 xxx xxx xxx"
+                        placeholder="+27 xxx xxx xxx"
                         placeholderTextColor="#9ca3af"
                         keyboardType="phone-pad"
                         value={formData.phone}
@@ -242,7 +247,7 @@ export default function SignupPage() {
                       <Ionicons name="location-outline" size={20} color="#9ca3af" style={styles.inputIcon} />
                       <TextInput
                         style={styles.input}
-                        placeholder="Arusha, Tanzania"
+                        placeholder="KwaZulu, South Africa"
                         placeholderTextColor="#9ca3af"
                         value={formData.location}
                         onChangeText={(val) => updateFormData('location', val)}
@@ -250,7 +255,7 @@ export default function SignupPage() {
                     </View>
                   </View>
 
-                  {/* User Type */}
+                  {/* User Type – now with three options */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>I am a</Text>
                     <View style={styles.userTypesRow}>
