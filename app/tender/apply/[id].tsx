@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import axios from 'axios';
 import { useLocalSearchParams, router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -18,44 +17,79 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
-import { API_BASE } from '../../(tabs)/api';
+import { supabase } from '@/lib/supabase';
 
 export default function ApplyToTenderPage() {
   const { id } = useLocalSearchParams();
-  const { session } = useAuth();
+  const { user } = useAuth();
   const [proposedPrice, setProposedPrice] = useState('');
   const [deliveryCommitment, setDeliveryCommitment] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async () => {
+    setErrorMessage(null); // Clear previous errors
     if (!proposedPrice.trim()) {
-      Alert.alert('Error', 'Please enter your proposed price');
+      setErrorMessage('Please enter your proposed price');
       return;
     }
     if (!message.trim()) {
-      Alert.alert('Error', 'Please write a cover message');
+      setErrorMessage('Please write a cover message');
+      return;
+    }
+    if (!user) {
+      setErrorMessage('You must be logged in to apply');
       return;
     }
 
     setSubmitting(true);
     try {
-      await axios.post(
-        `${API_BASE}/applications`,
-        {
-          tenderId: id,
-          proposedPrice,
-          deliveryCommitment,
+      // Auto-fix: Ensure the user exists in the public "users" table
+      const { data: userCheck } = await supabase
+        .from('users')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!userCheck) {
+        const email = user.email ?? `user_${user.id}@placeholder.com`;
+        await supabase.from('users').insert({
+          user_id: user.id,
+          username: user.name || 'Farmer',
+          email: email,
+          phone_number: '',
+          password_hash: '',
+          role: user.role || 'farmer',
+        });
+      }
+
+      const { error } = await supabase
+        .from('tender_applications')
+        .insert({
+          tender_id: id,
+          farmer_id: user.id,
+          proposed_price: proposedPrice,
+          delivery_commitment: deliveryCommitment,
           message,
-        },
-        { headers: { Authorization: `Bearer ${session?.access_token}`} }
-      );
-      Alert.alert('Success', 'Your application has been submitted!', [
-        { text: 'OK', onPress: () => router.replace(`/tender/${id}`) },
-      ]);
+          status: 'pending',
+        });
+      if (error) {
+        if (error.code === '23505') throw new Error('You have already applied to this tender');
+        throw error;
+      }
+      
+      if (Platform.OS === 'web') {
+        window.alert('Success\n\nYour application has been submitted!');
+        router.replace(`/tender/${id}`);
+      } else {
+        Alert.alert('Success', 'Your application has been submitted!', [
+          { text: 'OK', onPress: () => router.replace(`/tender/${id}`) },
+        ]);
+      }
     } catch (error: any) {
-      const msg = error.response?.data?.error || 'Failed to submit application';
-      Alert.alert('Error', msg);
+      const msg = error.message || 'Failed to submit application';
+      setErrorMessage(msg);
     } finally {
       setSubmitting(false);
     }
@@ -69,7 +103,7 @@ export default function ApplyToTenderPage() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace(`/tender/${id}`)} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#11181C" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Apply for Tender</Text>
@@ -79,6 +113,13 @@ export default function ApplyToTenderPage() {
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <Animated.View entering={FadeInUp}>
             <Text style={styles.subtitle}>Submit your offer to the retailer. Your application will be private.</Text>
+
+            {errorMessage && (
+              <View style={styles.errorBox}>
+                <Ionicons name="alert-circle" size={20} color="#ef4444" />
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              </View>
+            )}
 
             <View style={styles.formCard}>
               {/* Proposed Price */}
@@ -223,4 +264,15 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: { opacity: 0.6 },
   submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef2f2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+  },
+  errorText: { color: '#ef4444', fontSize: 14, marginLeft: 8, flex: 1 },
 });

@@ -66,6 +66,12 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
     transform: [{ rotate: `${sparkleRotation.value}deg` }],
   }));
 
+  const handlePress = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      (document.activeElement as HTMLElement)?.blur?.();
+    }
+  };
+
   return (
     <Animated.View 
       style={[
@@ -83,6 +89,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
           <TouchableOpacity
             style={styles.iconButton}
             activeOpacity={0.7}
+          onPress={handlePress}
           >
             <Ionicons name="menu" size={20} color="#11181C" />
           </TouchableOpacity>
@@ -98,7 +105,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
 
         {/* Right Notifications Button */}
         <Link href={"/notifications" as any} asChild>
-          <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.iconButton} activeOpacity={0.7} onPress={handlePress}>
             <View>
               <Ionicons name="notifications-outline" size={20} color="#11181C" />
               {notificationCount > 0 && (

@@ -41,7 +41,7 @@ app.get('/posts', async (req, res) => {
       .from('posts')
       .select(`
         *,
-        profiles:user_id (name, avatar),
+        profiles:user_id (full_name, avatar),
         comments:comments(count)
       `)
       .order('created_at', { ascending: false })
@@ -52,8 +52,8 @@ app.get('/posts', async (req, res) => {
     // Transform to frontend Discussion format
     const discussions = data.map(post => ({
       id: post.id,
-      avatar: post.profiles?.avatar || post.profiles?.name?.charAt(0).toUpperCase() || 'U',
-      author: post.profiles?.name || 'Anonymous',
+      avatar: post.profiles?.avatar || post.profiles?.full_name?.charAt(0).toUpperCase() || 'U',
+      author: post.profiles?.full_name || 'Anonymous',
       timeAgo: formatRelativeTime(post.created_at),
       trending: false,
       title: post.title,
@@ -81,8 +81,8 @@ app.get('/posts/:id/comments', async (req, res) => {
       .from('comments')
       .select(`
         *,
-        profiles:user_id (name, avatar),
-        replies:replies(*, profiles:user_id (name, avatar))
+        profiles:user_id (full_name, avatar),
+        replies:replies(*, profiles:user_id (full_name, avatar))
       `)
       .eq('post_id', id)
       .order('created_at', { ascending: true });
@@ -90,16 +90,16 @@ app.get('/posts/:id/comments', async (req, res) => {
     // Transform to frontend Comment structure
     const comments = data.map(c => ({
       id: c.id,
-      username: c.profiles?.name || 'Anonymous',
-      avatar: c.profiles?.avatar || c.profiles?.name?.charAt(0).toUpperCase() || 'U',
+      username: c.profiles?.full_name || 'Anonymous',
+      avatar: c.profiles?.avatar || c.profiles?.full_name?.charAt(0).toUpperCase() || 'U',
       comment: c.content,
       postedDate: formatRelativeTime(c.created_at),
       likes: c.likes_count || 0,
       likedByUser: false,
       replies: (c.replies || []).map(r => ({
         id: r.id,
-        username: r.profiles?.name || 'Anonymous',
-        avatar: r.profiles?.avatar || r.profiles?.name?.charAt(0).toUpperCase() || 'U',
+        username: r.profiles?.full_name || 'Anonymous',
+        avatar: r.profiles?.avatar || r.profiles?.full_name?.charAt(0).toUpperCase() || 'U',
         comment: r.content,
         postedDate: formatRelativeTime(r.created_at),
         likes: r.likes_count || 0,

@@ -3,6 +3,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -13,11 +14,13 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomNav } from '@/components/bottom-nav';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 
 interface TenderDetail {
   id: string;
+  retailerId: string;
   title: string;
   description: string;
   productCategory: string;
@@ -27,6 +30,8 @@ interface TenderDetail {
   deliveryDate: string;
   deadline: string;
   status: string;
+  contactEmail?: string;
+  requiredDocuments?: string;
   retailer: {
     name: string;
     city: string;
@@ -43,6 +48,7 @@ interface TenderDetail {
   createdAt: string;
 }
 
+
 export default function TenderDetailPage() {
   const { id } = useLocalSearchParams();
   const { user } = useAuth();
@@ -55,11 +61,17 @@ export default function TenderDetailPage() {
     try {
       const { data, error } = await supabase
         .from('tenders')
-        .select('*, profiles:retailer_id(name, location, farm_type), tender_requirements(*)')
+        .select('*, tender_requirements(*)')
         .eq('tender_id', id)
         .single();
 
       if (error) throw error;
+
+      const { data: profileData } = await supabase
+        .from('retail_profiles')
+        .select('store_name, city, business_type')
+        .eq('user_id', data.retailer_id)
+        .maybeSingle();
 
       setTender({
         id: data.tender_id,
@@ -72,11 +84,14 @@ export default function TenderDetailPage() {
         deliveryDate: data.delivery_date,
         deadline: data.deadline,
         status: data.status,
-          retailer: {
-          name: data.profiles?.name || data.profiles?.full_name || 'Unknown',
-          city: data.profiles?.location || '',
+        contactEmail: data.contact_email,
+        requiredDocuments: data.required_documents,
+        retailerId: data.retailer_id,
+        retailer: {
+          name: profileData?.store_name || 'Unknown',
+          city: profileData?.city || '',
           address: '',
-          businessType: data.profiles?.farm_type || 'Retailer',
+          businessType: profileData?.business_type || 'Retailer',
         },
         requirements: (data.tender_requirements || []).map((r: any) => ({
           id: r.requirement_id,
@@ -141,12 +156,57 @@ export default function TenderDetailPage() {
 
   const isOpen = tender.status === 'open';
 
+  const performDelete = async () => {
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('tenders')
+        .delete()
+        .eq('tender_id', tender.id);
+
+      if (error) throw error;
+
+      if (Platform.OS !== 'web') {
+        Alert.alert('Success', 'Tender deleted successfully', [
+          { text: 'OK', onPress: () => router.replace('/tenders') }
+        ]);
+      } else {
+        router.replace('/tenders');
+      }
+    } catch (error: any) {
+      console.error('Delete error:', error);
+      if (Platform.OS !== 'web') {
+        Alert.alert('Error', error.message || 'Failed to delete tender');
+      } else {
+        window.alert(error.message || 'Failed to delete tender');
+      }
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteTender = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to delete this tender? All applications will be lost. This action cannot be undone.')) {
+        performDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete Tender',
+        'Are you sure you want to delete this tender? All applications will be lost. This action cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: performDelete }
+        ]
+      );
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/tenders')} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#11181C" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Tender Details</Text>
@@ -227,6 +287,31 @@ export default function TenderDetailPage() {
               </View>
             </View>
 
+            {/* Document Requirements */}
+            {(tender.contactEmail || tender.requiredDocuments) && (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Application Requirements</Text>
+                {tender.contactEmail && (
+                  <View style={styles.submissionBox}>
+                    <Ionicons name="mail-outline" size={18} color="#22c55e" />
+                    <View style={{ marginLeft: 8, flex: 1 }}>
+                      <Text style={styles.submissionLabel}>Send Documents To:</Text>
+                      <Text style={styles.submissionValue}>{tender.contactEmail}</Text>
+                    </View>
+                  </View>
+                )}
+                {tender.requiredDocuments && (
+                  <View style={[styles.submissionBox, { marginTop: 8 }]}>
+                    <Ionicons name="document-text-outline" size={18} color="#22c55e" />
+                    <View style={{ marginLeft: 8, flex: 1 }}>
+                      <Text style={styles.submissionLabel}>Required Documents:</Text>
+                      <Text style={styles.submissionValue}>{tender.requiredDocuments}</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
             {/* Requirements */}
             {tender.requirements.length > 0 && (
               <View style={styles.card}>
@@ -249,10 +334,18 @@ export default function TenderDetailPage() {
           </Animated.View>
         </ScrollView>
 
-        {/* Apply Button */}
-        {isOpen && user?.role === 'farmer' && (
+        {/* Action Footer */}
+        {((isOpen && user?.role === 'farmer') || (user?.id === tender.retailerId)) && (
           <View style={styles.footer}>
-            {hasApplied ? (
+            {user?.id === tender.retailerId ? (
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={handleDeleteTender}
+              >
+                <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                <Text style={styles.deleteButtonText}>Delete Tender</Text>
+              </TouchableOpacity>
+            ) : hasApplied ? (
               <View style={styles.appliedButton}>
                 <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
                 <Text style={styles.appliedText}>Application Submitted</Text>
@@ -268,6 +361,7 @@ export default function TenderDetailPage() {
             )}
           </View>
         )}
+        <BottomNav />
       </View>
     </SafeAreaView>
   );
@@ -289,7 +383,7 @@ const styles = StyleSheet.create({
   },
   backButton: { padding: 4 },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#11181C' },
-  scrollContent: { padding: 16, paddingBottom: 100 },
+  scrollContent: { padding: 16, paddingBottom: 180 },
    card: {
      backgroundColor: '#fff',
      borderRadius: 16,
@@ -317,17 +411,21 @@ const styles = StyleSheet.create({
   deadlineBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', borderRadius: 12, padding: 12, marginTop: 12 },
   deadlineLabel: { fontSize: 11, color: '#ef4444' },
   deadlineValue: { fontSize: 14, fontWeight: '700', color: '#ef4444', marginTop: 2 },
+  submissionBox: { flexDirection: 'row', backgroundColor: '#f0fdf4', borderRadius: 12, padding: 12, alignItems: 'flex-start', borderWidth: 1, borderColor: '#dcfce7' },
+  submissionLabel: { fontSize: 12, color: '#166534', marginBottom: 2 },
+  submissionValue: { fontSize: 14, fontWeight: '600', color: '#11181C' },
   requirementRow: { flexDirection: 'row', paddingVertical: 10 },
   requirementBorder: { borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   reqBullet: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   reqNumber: { fontSize: 12, fontWeight: '700', color: '#22c55e' },
+  applicationRow: { paddingVertical: 12 },
   reqContent: { flex: 1 },
   reqName: { fontSize: 14, fontWeight: '600', color: '#11181C' },
   reqDetail: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   reqNotes: { fontSize: 12, color: '#9ca3af', marginTop: 4, fontStyle: 'italic' },
   footer: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 80,
     left: 0,
     right: 0,
     backgroundColor: '#fff',
@@ -359,4 +457,16 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(34,197,94,0.3)',
   },
   appliedText: { color: '#166534', fontSize: 16, fontWeight: '700' },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 40,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+  },
+  deleteButtonText: { color: '#ef4444', fontSize: 16, fontWeight: '700' },
 });

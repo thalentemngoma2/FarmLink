@@ -74,7 +74,7 @@ app.get('/community-server/src/index', async (req, res) => {
   const { userId } = req.query;
   let query = supabase
     .from('plant_scans')
-    .select('*, profiles:user_id (name, location)')
+    .select('*, profiles:user_id (full_name, location)')
     .order('created_at', { ascending: false })
     .limit(6);
   if (userId) query = query.neq('user_id', userId);
@@ -82,7 +82,7 @@ app.get('/community-server/src/index', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   const communityScans = data.map(scan => ({
     id: scan.id,
-    farmerName: scan.profiles?.name || 'Anonymous',
+    farmerName: scan.profiles?.full_name || 'Anonymous',
     location: scan.profiles?.location || 'Unknown',
     imageUri: scan.image_url,
     plantName: scan.plant_name,
@@ -98,7 +98,7 @@ app.get('/posting-server/src/index', async (req, res) => {
   const { category = 'All', limit = 20, sort = 'recent' } = req.query;
   let query = supabase
     .from('posts')
-    .select('*, profiles:user_id (name, avatar), comments_count, likes_count')
+    .select('*, profiles:user_id (full_name, avatar), comments_count, likes_count')
     .limit(parseInt(limit));
   if (category !== 'All') query = query.eq('category', category);
   if (sort === 'popular') query = query.order('likes_count', { ascending: false });
@@ -107,8 +107,8 @@ app.get('/posting-server/src/index', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   const discussions = data.map(post => ({
     id: post.id,
-    avatar: post.profiles?.avatar || post.profiles?.name?.charAt(0).toUpperCase() || 'U',
-    author: post.profiles?.name || 'Anonymous',
+    avatar: post.profiles?.avatar || post.profiles?.full_name?.charAt(0).toUpperCase() || 'U',
+    author: post.profiles?.full_name || 'Anonymous',
     timeAgo: formatRelativeTime(post.created_at),
     title: post.title,
     preview: post.preview,
@@ -145,23 +145,23 @@ app.get('/posting-server/src/index/:id/comments', async (req, res) => {
   const { id } = req.params;
   const { data, error } = await supabase
     .from('comments')
-    .select('*, profiles:user_id (name, avatar), replies:comments!parent_comment_id (*, profiles:user_id (name, avatar))')
+    .select('*, profiles:user_id (full_name, avatar), replies:comments!parent_comment_id (*, profiles:user_id (full_name, avatar))')
     .eq('post_id', id)
     .is('parent_comment_id', null)
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   const comments = data.map(c => ({
     id: c.id,
-    username: c.profiles?.name || 'Anonymous',
-    avatar: c.profiles?.avatar || c.profiles?.name?.charAt(0).toUpperCase() || 'U',
+    username: c.profiles?.full_name || 'Anonymous',
+    avatar: c.profiles?.avatar || c.profiles?.full_name?.charAt(0).toUpperCase() || 'U',
     comment: c.content,
     postedDate: formatRelativeTime(c.created_at),
     likes: c.likes_count || 0,
     likedByUser: false,
     replies: (c.replies || []).map(r => ({
       id: r.id,
-      username: r.profiles?.name || 'Anonymous',
-      avatar: r.profiles?.avatar || r.profiles?.name?.charAt(0).toUpperCase() || 'U',
+      username: r.profiles?.full_name || 'Anonymous',
+      avatar: r.profiles?.avatar || r.profiles?.full_name?.charAt(0).toUpperCase() || 'U',
       comment: r.content,
       postedDate: formatRelativeTime(r.created_at),
       likes: r.likes_count || 0,
@@ -306,7 +306,7 @@ app.post('/auth-server/src/index/reset-password', async (req, res) => {
 app.get('/profile-server/src/index', requireAuth, async (req, res) => {
   const { data, error } = await supabase
     .from('profiles')
-    .select('name, email, membership_type, avatar, location, farm_size, main_crops, farming_type')
+    .select('full_name, email, membership_type, avatar, location, farm_size, main_crops, farming_type')
     .eq('id', req.user.id)
     .single();
   if (error) return res.status(500).json({ error: error.message });
@@ -432,7 +432,7 @@ app.get('/trending', async (req, res) => {
   const { limit = 10 } = req.query;
   const { data, error } = await supabase
     .from('posts')
-    .select('*, profiles:user_id (name, avatar), likes_count, comments_count')
+    .select('*, profiles:user_id (full_name, avatar), likes_count, comments_count')
     .order('likes_count', { ascending: false })
     .limit(parseInt(limit));
   if (error) return res.status(500).json({ error: error.message });
@@ -440,7 +440,7 @@ app.get('/trending', async (req, res) => {
     id: post.id,
     title: post.title,
     preview: post.preview,
-    author: post.profiles?.name || 'Anonymous',
+    author: post.profiles?.full_name || 'Anonymous',
     likes: post.likes_count,
     replies: post.comments_count,
     imageUri: post.media_urls?.[0] || null,
@@ -478,6 +478,8 @@ app.get('/tenders', async (req, res) => {
     deliveryDate: t.delivery_date,
     deadline: t.deadline,
     status: t.status,
+    contactEmail: t.contact_email,
+    requiredDocuments: t.required_documents,
     isPrivate: t.is_private,
     retailerName: t.retail_profiles?.store_name || 'Unknown Retailer',
     retailerCity: t.retail_profiles?.city || '',
@@ -512,6 +514,8 @@ app.get('/tenders/:id', async (req, res) => {
     deliveryDate: data.delivery_date,
     deadline: data.deadline,
     status: data.status,
+    contactEmail: data.contact_email,
+    requiredDocuments: data.required_documents,
     isPrivate: data.is_private,
     retailer: {
       name: data.retail_profiles?.store_name || 'Unknown',
@@ -538,7 +542,7 @@ app.post('/tenders', requireAuth, async (req, res) => {
   }
   const {
     title, description, productCategory, quantityNeeded, budgetRange,
-    deliveryLocation, deliveryDate, deadline, requirements
+    deliveryLocation, deliveryDate, deadline, contactEmail, requiredDocuments, requirements
   } = req.body;
   if (!title || !description || !deadline) {
     return res.status(400).json({ error: 'Title, description, and deadline are required' });
@@ -555,6 +559,8 @@ app.post('/tenders', requireAuth, async (req, res) => {
       delivery_location: deliveryLocation,
       delivery_date: deliveryDate,
       deadline,
+      contact_email: contactEmail,
+      required_documents: requiredDocuments,
       status: 'open',
       created_at: new Date(),
     })
@@ -775,13 +781,13 @@ app.get('/experts', async (req, res) => {
     .from('users')
     .select(`
       user_id,
-      profiles:user_id (name, location, farming_type, bio, avatar)
+      profiles:user_id (full_name, location, farming_type, bio, avatar)
     `)
     .eq('role', 'extension_officer');
   if (error) return res.status(500).json({ error: error.message });
   const expertsList = (experts || []).map(e => ({
     id: e.user_id,
-    name: e.profiles?.name || 'Unknown',
+    name: e.profiles?.full_name || 'Unknown',
     location: e.profiles?.location || '',
     specialty: e.profiles?.farming_type || '',
     bio: e.profiles?.bio || '',
@@ -825,8 +831,8 @@ app.post('/expert-requests', requireAuth, async (req, res) => {
         .from('expert_requests')
         .select(`
           *,
-          expert:expert_id (user_id, profiles:user_id (name, avatar, location)),
-          farmer:farmer_id (user_id, profiles:user_id (name, avatar, location))
+          expert:expert_id (user_id, profiles:user_id (full_name, avatar, location)),
+          farmer:farmer_id (user_id, profiles:user_id (full_name, avatar, location))
         `)
         .eq('request_id', data.request_id)
         .single();
@@ -846,8 +852,8 @@ app.get('/expert-requests', requireAuth, async (req, res) => {
     .from('expert_requests')
     .select(`
       *,
-      expert:expert_id (user_id, profiles:user_id (name, avatar, location)),
-      farmer:farmer_id (user_id, profiles:user_id (name, avatar, location))
+      expert:expert_id (user_id, profiles:user_id (full_name, avatar, location)),
+      farmer:farmer_id (user_id, profiles:user_id (full_name, avatar, location))
     `)
     .order('created_at', { ascending: false });
 
@@ -876,13 +882,13 @@ app.get('/expert-requests', requireAuth, async (req, res) => {
     createdAt: r.created_at,
     expert: r.expert ? {
       id: r.expert.user_id,
-      name: r.expert.profiles?.name || 'Unknown',
+      name: r.expert.profiles?.full_name || 'Unknown',
       location: r.expert.profiles?.location || '',
       avatar: r.expert.profiles?.avatar || null,
     } : null,
     farmer: r.farmer ? {
       id: r.farmer.user_id,
-      name: r.farmer.profiles?.name || 'Unknown',
+      name: r.farmer.profiles?.full_name || 'Unknown',
       location: r.farmer.profiles?.location || '',
       avatar: r.farmer.profiles?.avatar || null,
     } : null,
@@ -898,8 +904,8 @@ app.get('/expert-requests/:id', requireAuth, async (req, res) => {
     .from('expert_requests')
     .select(`
       *,
-      expert:expert_id (user_id, profiles:user_id (name, avatar, location, farming_type, bio)),
-      farmer:farmer_id (user_id, profiles:user_id (name, avatar, location, farm_size, main_crops))
+      expert:expert_id (user_id, profiles:user_id (full_name, avatar, location, farming_type, bio)),
+      farmer:farmer_id (user_id, profiles:user_id (full_name, avatar, location, farm_size, main_crops))
     `)
     .eq('request_id', id)
     .single();
@@ -932,7 +938,7 @@ app.get('/expert-requests/:id', requireAuth, async (req, res) => {
     createdAt: data.created_at,
     expert: data.expert ? {
       id: data.expert.user_id,
-      name: data.expert.profiles?.name || 'Unknown',
+      name: data.expert.profiles?.full_name || 'Unknown',
       location: data.expert.profiles?.location || '',
       specialty: data.expert.profiles?.farming_type || '',
       bio: data.expert.profiles?.bio || '',
@@ -940,7 +946,7 @@ app.get('/expert-requests/:id', requireAuth, async (req, res) => {
     } : null,
     farmer: {
       id: data.farmer.user_id,
-      name: data.farmer.profiles?.name || 'Unknown',
+      name: data.farmer.profiles?.full_name || 'Unknown',
       location: data.farmer.profiles?.location || '',
       farmSize: data.farmer.profiles?.farm_size || '',
       mainCrops: data.farmer.profiles?.main_crops || [],
@@ -1072,7 +1078,7 @@ app.get('/expert-requests/:id/messages', requireAuth, async (req, res) => {
       *,
       sender:sender_id (
         user_id,
-        profiles:user_id (name, avatar)
+        profiles:user_id (full_name, avatar)
       )
     `)
     .eq('request_id', id)
@@ -1087,7 +1093,7 @@ app.get('/expert-requests/:id/messages', requireAuth, async (req, res) => {
     createdAt: m.created_at,
     sender: {
       id: m.sender.user_id,
-      name: m.sender.profiles?.name || 'Unknown',
+      name: m.sender.profiles?.full_name || 'Unknown',
       avatar: m.sender.profiles?.avatar || null,
     },
   }));

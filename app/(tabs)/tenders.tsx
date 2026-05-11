@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -38,16 +38,12 @@ interface Tender {
   requirements: { id: string; productName: string; quantity: string; gradeQuality: string }[];
 }
 
-type ProfileRow = {
-  user_id: string;
-  name: string | null;
-  location: string | null;
-};
-
 
 const formatTimeAgo = (dateStr: string) => {
+  if (!dateStr) return 'Just now';
   const now = new Date().getTime();
   const date = new Date(dateStr).getTime();
+  if (isNaN(date) || new Date(dateStr).getFullYear() <= 1970) return 'Just now';
   const diffMins = Math.floor((now - date) / 60000);
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
@@ -58,7 +54,7 @@ const formatTimeAgo = (dateStr: string) => {
 };
 
 export default function TendersPage() {
-  useAuth();
+  const { user } = useAuth();
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -94,16 +90,15 @@ export default function TendersPage() {
 
       let profileById = new Map<string, { name: string | null; location: string | null }>();
       if (retailerIds.length > 0) {
-        const { data: profileRows, error: profileError } = await supabase
-          .from('profiles')
-          .select('user_id, name, full_name, location')
+        const { data: retailProfileRows, error: retailProfileError } = await supabase
+          .from('retail_profiles')
+          .select('user_id, store_name, city')
           .in('user_id', retailerIds);
 
+        if (retailProfileError) throw retailProfileError;
 
-        if (profileError) throw profileError;
-
-        (profileRows || []).forEach((p: ProfileRow) => {
-          profileById.set(p.user_id, { name: p.name, location: p.location });
+        (retailProfileRows || []).forEach((p: any) => {
+          profileById.set(p.user_id, { name: p.store_name, location: p.city });
         });
       }
 
@@ -133,7 +128,8 @@ export default function TendersPage() {
       });
 
       setTenders(formattedTenders);
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError' || error.message?.includes('AbortError')) return;
       console.error('Failed to fetch tenders', error);
     } finally {
       setLoading(false);
@@ -141,9 +137,11 @@ export default function TendersPage() {
     }
   }, [selectedCategory, searchQuery]);
 
-  useEffect(() => {
-    fetchTenders();
-  }, [fetchTenders]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchTenders();
+    }, [fetchTenders])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -188,11 +186,11 @@ export default function TendersPage() {
               onSubmitEditing={fetchTenders}
               returnKeyType="search"
             />
-            {searchQuery.length > 0 && (
+            {searchQuery.length > 0 ? (
               <TouchableOpacity onPress={() => { setSearchQuery(''); fetchTenders(); }}>
                 <Ionicons name="close-circle" size={20} color="#9ca3af" />
               </TouchableOpacity>
-            )}
+            ) : null}
           </Animated.View>
 
           {/* Categories */}
@@ -242,38 +240,38 @@ export default function TendersPage() {
                     <Text style={styles.tenderDescription} numberOfLines={2}>{tender.description}</Text>
 
                     <View style={styles.tenderDetails}>
-                      {tender.productCategory && (
+                      {tender.productCategory ? (
                         <View style={styles.detailItem}>
                           <Ionicons name="pricetag-outline" size={14} color="#6b7280" />
                           <Text style={styles.detailText}>{tender.productCategory}</Text>
                         </View>
-                      )}
-                      {tender.quantityNeeded && (
+                      ) : null}
+                      {tender.quantityNeeded ? (
                         <View style={styles.detailItem}>
                           <Ionicons name="cube-outline" size={14} color="#6b7280" />
                           <Text style={styles.detailText}>{tender.quantityNeeded}</Text>
                         </View>
-                      )}
-                      {tender.budgetRange && (
+                      ) : null}
+                      {tender.budgetRange ? (
                         <View style={styles.detailItem}>
                           <Ionicons name="cash-outline" size={14} color="#6b7280" />
                           <Text style={styles.detailText}>{tender.budgetRange}</Text>
                         </View>
-                      )}
+                      ) : null}
                     </View>
 
-                    {tender.requirements.length > 0 && (
+                    {tender.requirements.length > 0 ? (
                       <View style={styles.requirementsRow}>
                         {tender.requirements.slice(0, 2).map((req) => (
                           <View key={req.id} style={styles.requirementChip}>
                             <Text style={styles.requirementChipText}>{req.productName}</Text>
                           </View>
                         ))}
-                         {tender.requirements.length > 2 && (
+                         {tender.requirements.length > 2 ? (
                            <Text style={styles.moreText}>+{tender.requirements.length - 2} more</Text>
-                         )}
+                         ) : null}
                        </View>
-                    )}
+                    ) : null}
 
                     <View style={styles.tenderFooter}>
                       <View style={styles.deadlineRow}>
@@ -284,14 +282,23 @@ export default function TendersPage() {
                     </View>
                   </TouchableOpacity>
                 </Animated.View>
-              ))
-            )}
-          </View>
-        </ScrollView>
+))
+              )}
+            </View>
+          </ScrollView>
 
-        <BottomNav />
-      </View>
-    </SafeAreaView>
+          <BottomNav />
+          {user?.role === 'retailer' ? (
+            <TouchableOpacity
+              style={styles.fab}
+              onPress={() => router.push('/tender/post')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={28} color="#fff" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </SafeAreaView>
   );
 }
 
@@ -359,4 +366,20 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', marginTop: 60 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: '#11181C', marginTop: 16 },
   emptySubtitle: { fontSize: 14, color: '#6b7280', marginTop: 4 },
+  fab: {
+    position: 'absolute',
+    bottom: 90,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#22c55e',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
 });

@@ -16,6 +16,7 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomNav } from '@/components/bottom-nav';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 
@@ -109,12 +110,12 @@ export default function ExpertRequestDetailPage() {
       if (farmerUserId) {
         const { data: profileData, error: profileErr } = await supabase
           .from('profiles')
-          .select('name, location')
+          .select('full_name, location')
           .eq('user_id', farmerUserId)
           .maybeSingle();
 
         if (!profileErr && profileData) {
-          setFarmerName(profileData.name ?? farmerUserId);
+          setFarmerName(profileData.full_name ?? farmerUserId);
           setFarmerLocation(profileData.location ?? '');
         }
       }
@@ -196,7 +197,7 @@ export default function ExpertRequestDetailPage() {
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/support')} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#11181C" />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
@@ -273,6 +274,7 @@ export default function ExpertRequestDetailPage() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+        <BottomNav />
       </View>
     </SafeAreaView>
   );
@@ -330,7 +332,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#11181C' },
   headerSubtitle: { fontSize: 12, color: '#6b7280', marginTop: 2 },
 
-  scrollContent: { padding: 16, paddingBottom: 120 },
+  scrollContent: { padding: 16, paddingBottom: 180 },
   card: { backgroundColor: '#fff', borderRadius: 16, padding: 16 },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
@@ -354,7 +356,7 @@ const styles = StyleSheet.create({
 
   replyBar: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 80,
     left: 0,
     right: 0,
     borderTopWidth: 1,
@@ -386,4 +388,3 @@ const styles = StyleSheet.create({
   },
   sendDisabled: { backgroundColor: '#d1d5db' },
 });
-

@@ -9,7 +9,19 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+
+let MapView: any = null;
+let Heatmap: any = null;
+let Marker: any = null;
+let PROVIDER_GOOGLE: any = null;
+
+if (Platform.OS !== 'web') {
+  const RNMaps = require('react-native-maps');
+  MapView = RNMaps.default;
+  Heatmap = RNMaps.Heatmap;
+  Marker = RNMaps.Marker;
+  PROVIDER_GOOGLE = RNMaps.PROVIDER_GOOGLE;
+}
 
 // ---------- Mock Data ----------
 // Types
@@ -230,6 +242,15 @@ export default function MockOutbreakHeatMap({ initialFilter = 'all' }: MockOutbr
     const date = new Date(iso);
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
+
+  if (Platform.OS === 'web' || !MapView) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f3f4f6' }]}>
+        <Ionicons name="globe-outline" size={48} color="#9ca3af" />
+        <Text style={{ marginTop: 8, color: '#6b7280' }}>Map not available on web</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

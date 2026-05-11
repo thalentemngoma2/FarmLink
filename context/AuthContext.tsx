@@ -1,11 +1,15 @@
 import { supabase } from '@/lib/supabase';
+import { router } from 'expo-router';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
 export interface User {
   id: string;
   email: string;
   name?: string;
   avatar?: string;
+  location?: string;
+  createdAt?: string;
   role?: string;
 }
 
@@ -33,55 +37,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // const [session, setSession] = useState<any | null>(null); // unused
   const [isLoading, setIsLoading] = useState(true);
 
+  // Moved outside useEffect so it can be called immediately after login/signup
+  const fetchUserWithRole = async (session: any) => {
+    if (!session?.user) {
+      setUser(null);
+      return;
+    }
+
+    try {
+      // Fetch role from public.users table
+      const { data: userData, error } = await supabase
+        .from('users')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setUser({
+        id: session.user.id,
+        email: session.user.email!,
+        name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
+        avatar: session.user.user_metadata?.avatar,
+        role: userData?.role,
+      });
+    } catch (e: any) {
+      if (e.name === 'AbortError' || e.message?.includes('AbortError')) return;
+      // Avoid crashing app startup if DB/network is unreachable
+      console.error('Failed to fetch user role', e);
+      setUser({
+        id: session.user.id,
+        email: session.user.email!,
+        name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
+        avatar: session.user.user_metadata?.avatar,
+        role: undefined,
+      });
+    }
+  };
+
   // Listen to auth state changes from Supabase
   useEffect(() => {
     let isMounted = true;
 
-    const fetchUserWithRole = async (session: any) => {
-      if (!session?.user) {
-        if (isMounted) setUser(null);
-        return;
-      }
-
-      try {
-        // Fetch role from public.users table
-        const { data: userData } = await supabase
-          .from('users')
-          .select('role')
-          .eq('user_id', session.user.id)
-          .maybeSingle();
-
-        if (!isMounted) return;
-        setUser({
-          id: session.user.id,
-          email: session.user.email!,
-          name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
-          avatar: session.user.user_metadata?.avatar,
-          role: userData?.role,
-        });
-      } catch (e) {
-        // Avoid crashing app startup if DB/network is unreachable
-        console.error('Failed to fetch user role', e);
-        if (!isMounted) return;
-        setUser({
-          id: session.user.id,
-          email: session.user.email!,
-          name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
-          avatar: session.user.user_metadata?.avatar,
-          role: undefined,
-        });
-      }
-    };
-
     const init = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        await fetchUserWithRole(session);
-      } catch (e) {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (isMounted) await fetchUserWithRole(session);
+      } catch (e: any) {
+        if (e.name === 'AbortError' || e.message?.includes('AbortError')) return;
         console.error('Failed to get Supabase session', e);
         if (isMounted) setUser(null);
       } finally {
         if (isMounted) setIsLoading(false);
+        
+        // Fire a lightweight, silent query to wake up the database API
+        // while the user is still looking at the app's splash/home screen.
+        supabase.from('users').select('user_id').limit(1)
+          .then(() => console.log('Database warm-up complete'))
+          .catch(() => {});
       }
     };
 
@@ -89,18 +103,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen for changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      try {
-        await fetchUserWithRole(session);
-      } catch (e) {
-        console.error('Auth state change handling failed', e);
-      } finally {
-        if (isMounted) setIsLoading(false);
+      if (isMounted) {
+        try {
+          await fetchUserWithRole(session);
+        } catch (e) {
+          console.error('Auth state change handling failed', e);
+        } finally {
+          setIsLoading(false);
+        }
       }
     });
+
+    // Global keyboard listener for force logout (Ctrl + Shift + O)
+    const handleKeyDown = async (e: any) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        setIsLoading(true);
+        try {
+          // Forcibly clear local session tokens
+          await supabase.auth.signOut();
+          if (isMounted) setUser(null);
+          router.replace('/login');
+        } catch (err) {
+          console.error('Force logout error', err);
+        } finally {
+          if (isMounted) setIsLoading(false);
+        }
+      }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.addEventListener('keydown', handleKeyDown);
+    }
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.removeEventListener('keydown', handleKeyDown);
+      }
     };
   }, []);
 
@@ -118,8 +159,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      
+      // Update state immediately so navigation doesn't see a null user
+      if (data.session) {
+        await fetchUserWithRole(data.session);
+      }
     } catch (err: any) {
       throw new Error(err.message || 'Login failed');
     } finally {
@@ -170,17 +216,15 @@ const signup = async (email: string, password: string, name: string, role?: stri
   const verifyOTP = async (email: string, token: string) => {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.verifyOtp({
         email,
         token,
         type: 'email',
       });
       if (error) throw error;
       
-      // Refresh user state to load new role from DB
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        // Role refresh handled by onAuthStateChange
+      if (data.session) {
+        await fetchUserWithRole(data.session);
       }
     } catch (err: any) {
       throw new Error(err.message || 'Verification failed');

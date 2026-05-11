@@ -74,7 +74,7 @@ export default function ProfilePage() {
    const [profile, setProfile] = useState<ProfileData | null>(null);
    const [achievements, setAchievements] = useState<Achievement[]>([]);
    const [loading, setLoading] = useState(true);
-   const { user, logout } = useAuth();
+   const { user, logout, isLoading: authLoading } = useAuth();
 
    // Determine user role from AuthContext
    const userRole = user?.role || 'farmer';
@@ -85,6 +85,8 @@ export default function ProfilePage() {
         setLoading(false);
         return;
       }
+      
+      setLoading(true);
 
       try {
         // Try to fetch farmer profile first
@@ -192,7 +194,7 @@ export default function ProfilePage() {
 
   const { width, height } = Dimensions.get('window');
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>

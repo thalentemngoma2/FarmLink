@@ -36,6 +36,8 @@ CREATE TABLE public.tenders (
   deadline DATE NOT NULL,
   status VARCHAR(20) DEFAULT 'open' CHECK (status IN ('open', 'closed', 'awarded', 'cancelled')),
   is_private BOOLEAN DEFAULT FALSE, -- if true, only visible to invited farmers (future)
+  contact_email VARCHAR(255),
+  required_documents TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
