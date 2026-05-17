@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import { BlurView } from 'expo-blur';
-import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -26,6 +25,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, {
@@ -48,8 +48,10 @@ import { ChatProvider, useChat } from '@/context/ChatContext';
 import { supabase } from '@/lib/supabase';
 
 // ---------- Helpers ----------
-function formatPostTime(isoString: string): string {
+function formatPostTime(isoString?: string): string {
+  if (!isoString) return '';
   const date = new Date(isoString);
+  if (isNaN(date.getTime())) return '';
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
@@ -109,10 +111,16 @@ interface Discussion {
   media: MediaItem[]; likedByUser?: boolean; isOfficial: boolean; comments: Comment[];
 }
 
-const CATEGORIES = ['All', 'Crops', 'Pests', 'Irrigation', 'Soil', 'Market'];
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const BOTTOM_NAV_HEIGHT = 70;
+const PLANS = [
+  { name: 'Basic', price: 49, color: '#22c55e', maxProducts: 3 },
+  { name: 'Growth', price: 99, color: '#3b82f6', maxProducts: 10 },
+  { name: 'Premium', price: 199, color: '#8b5cf6', maxProducts: Infinity },
+  { name: 'Pay-Per-Post', price: 10, color: '#f97316', maxProducts: 1 },
+];
 
+const CATEGORIES = ['All', 'Crops', 'Pests', 'Irrigation', 'Soil', 'Market'];
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const BOTTOM_NAV_HEIGHT = 70;
 const HEADER_HEIGHT = 100;
 const SEARCH_HEIGHT = 52;
 const TABS_HEIGHT = 44;
@@ -133,8 +141,7 @@ const ReplyItem: React.FC<ReplyItemProps> = ({ reply, onLike, parentCommentId, c
     <View style={styles.replyBubble}>
       <Text style={styles.replyUsername}>@{reply.username}</Text>
       <Text style={styles.replyText}>{reply.comment}</Text>
-      <View style={styles.replyMeta}>
-        <Text style={styles.replyDate}>{reply.postedDate}</Text>
+      <View style={[styles.replyMeta, { justifyContent: 'flex-start' }]}>
         <TouchableOpacity
           style={styles.replyLikeBtn}
           onPress={() => onLike(reply.id, parentCommentId)}
@@ -179,7 +186,6 @@ const CommentItem: React.FC<CommentItemProps> = ({
           <Text style={styles.commentText}>{comment.comment}</Text>
         </View>
         <View style={styles.commentActions}>
-          <Text style={styles.commentDate}>{comment.postedDate}</Text>
           <TouchableOpacity onPress={() => onLike(comment.id, false)} style={styles.commentLikeBtn}>
             <Ionicons
               name={comment.likedByUser ? 'heart' : 'heart-outline'}
@@ -310,7 +316,6 @@ const CommentScreen: React.FC<CommentScreenProps> = ({
               <Text style={styles.postSummaryAvatar}>{post.avatar}</Text>
               <View>
                 <Text style={styles.postSummaryName}>{post.author}</Text>
-                <Text style={styles.postSummaryTime}>{post.timeAgo}</Text>
               </View>
             </View>
             <Text style={styles.postSummaryText} numberOfLines={3}>
@@ -447,18 +452,14 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
       if (!response.ok) throw new Error('Failed to read file for upload');
       blob = await response.blob();
     } else {
-      let safeUri = uri;
-      if (!uri.startsWith('file://')) {
-        const fileName = uri.split('/').pop() || `${Date.now()}`;
-        const cachePath = FileSystem.cacheDirectory + fileName;
-        await FileSystem.copyAsync({ from: uri, to: cachePath });
-        safeUri = cachePath;
-      }
-      const response = await fetch(safeUri);
+      const response = await fetch(uri);
       if (!response.ok) throw new Error('Failed to read file for upload');
       blob = await response.blob();
     }
-    const fileExt = uri.split('.').pop() || (type === 'image' ? 'jpg' : 'mp4');
+    const fileExtCandidate = uri.split('.').pop();
+    const fileExt = (fileExtCandidate && fileExtCandidate.length <= 4 && !fileExtCandidate.includes('/'))
+      ? fileExtCandidate
+      : (type === 'image' ? 'jpg' : 'mp4');
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
     const filePath = `posts/${userId}/${fileName}`;
     const { error } = await supabase.storage.from('farmlink').upload(filePath, blob, {
@@ -485,6 +486,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
         category: selectedCategory,
         media_urls: mediaUrls,
         media_type: mediaTypeLocked,
+        created_at: new Date().toISOString(),
       });
       setShowSuccess(true);
       setTimeout(() => { reset(); onClose(); onPosted(); }, 1500);
@@ -601,7 +603,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
                 <TouchableOpacity
                   style={cpStyles.actionItem}
                   onPress={() => pickMedia('image')}
-                  disabled={mediaItems.length >= MAX_MEDIA || (mediaTypeLocked && mediaTypeLocked !== 'image')}
+                  disabled={mediaItems.length >= MAX_MEDIA || !!(mediaTypeLocked && mediaTypeLocked !== 'image')}
                 >
                   <View style={[cpStyles.actionIcon, { backgroundColor: '#f0fdf4' }]}>
                     <Ionicons name="image-outline" size={20} color="#22c55e" />
@@ -611,7 +613,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
                 <TouchableOpacity
                   style={cpStyles.actionItem}
                   onPress={() => pickMedia('video')}
-                  disabled={mediaItems.length >= MAX_MEDIA || (mediaTypeLocked && mediaTypeLocked !== 'video')}
+                  disabled={mediaItems.length >= MAX_MEDIA || !!(mediaTypeLocked && mediaTypeLocked !== 'video')}
                 >
                   <View style={[cpStyles.actionIcon, { backgroundColor: '#fef3c7' }]}>
                     <Ionicons name="videocam-outline" size={20} color="#d97706" />
@@ -696,20 +698,28 @@ const cpStyles = StyleSheet.create({
   successSub: { fontSize: 14, color: '#9ca3af' },
 });
 
-// ---------- Post Card (fixed play/pause) ----------
+// ---------- Post Card ----------
 interface PostCardProps {
   post: Discussion;
   onLike: (id: string) => void;
   onComment: (id: string) => void;
   onOpenChat: (userId: string, name: string, avatar: string) => void;
+  onReport: (postId: string) => void;
+  onDelete: (postId: string) => void;
   videoRefs: React.MutableRefObject<Map<string, Video>>;
   visibleVideoId: string | null;
   renderMentions: (text: string) => React.ReactNode;
   index: number;
+  currentUserId?: string;
 }
 const PostCard: React.FC<PostCardProps> = ({
-  post, onLike, onComment, onOpenChat, videoRefs, visibleVideoId, renderMentions, index,
+  post, onLike, onComment, onOpenChat, onReport, onDelete,
+  videoRefs, visibleVideoId, renderMentions, index, currentUserId,
 }) => {
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = screenWidth - 32;
+  const mediaStyle = { width: cardWidth, aspectRatio: 16 / 10 };
+
   const [mediaIndex, setMediaIndex] = useState(0);
   const [showControls, setShowControls] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -717,15 +727,24 @@ const PostCard: React.FC<PostCardProps> = ({
   const hideControlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    const video = videoRefs.current.get(post.id);
     if (visibleVideoId === post.id) {
       if (!manuallyPaused) {
-        videoRefs.current.get(post.id)?.playAsync();
+        video?.playAsync().catch((e: any) => {
+          if (e.name !== 'AbortError' && !e.message?.includes('AbortError') && !e.message?.includes('interrupted')) {
+            console.warn('Video play error:', e);
+          }
+        });
       }
     } else {
-      videoRefs.current.get(post.id)?.pauseAsync();
+      video?.pauseAsync().catch((e: any) => {
+        if (e.name !== 'AbortError' && !e.message?.includes('AbortError') && !e.message?.includes('interrupted')) {
+          console.warn('Video pause error:', e);
+        }
+      });
       setManuallyPaused(false);
     }
-  }, [visibleVideoId, post.id, manuallyPaused]);
+  }, [visibleVideoId, post.id, manuallyPaused, videoRefs]);
 
   const toggleControls = () => {
     setShowControls((prev) => !prev);
@@ -738,12 +757,18 @@ const PostCard: React.FC<PostCardProps> = ({
   const handlePlayPause = async () => {
     const video = videoRefs.current.get(post.id);
     if (!video) return;
-    if (manuallyPaused) {
-      await video.playAsync();
-      setManuallyPaused(false);
-    } else {
-      await video.pauseAsync();
-      setManuallyPaused(true);
+    try {
+      if (manuallyPaused) {
+        await video.playAsync();
+        setManuallyPaused(false);
+      } else {
+        await video.pauseAsync();
+        setManuallyPaused(true);
+      }
+    } catch (e: any) {
+      if (e.name !== 'AbortError' && !e.message?.includes('AbortError') && !e.message?.includes('interrupted')) {
+        console.warn('Video toggle error:', e);
+      }
     }
   };
 
@@ -755,12 +780,18 @@ const PostCard: React.FC<PostCardProps> = ({
     await video.setStatusAsync({ isMuted: newMuted });
   };
 
+  const isAvatarUrl = post.avatar && (post.avatar.startsWith('http') || post.avatar.startsWith('file'));
+
   return (
     <Animated.View entering={FadeIn.delay(index * 60)} style={styles.card}>
       <View style={styles.cardHeader}>
         <TouchableOpacity style={styles.authorRow} onPress={() => onOpenChat(post.authorId, post.author, post.avatar)} activeOpacity={0.7}>
           <View style={styles.authorAvatar}>
-            <Text style={styles.authorAvatarText}>{post.avatar}</Text>
+            {isAvatarUrl ? (
+              <Image source={{ uri: post.avatar }} style={styles.authorAvatarImage} />
+            ) : (
+              <Text style={styles.authorAvatarText}>{post.avatar}</Text>
+            )}
           </View>
           <View style={styles.authorInfo}>
             <View style={styles.authorNameRow}>
@@ -772,11 +803,21 @@ const PostCard: React.FC<PostCardProps> = ({
                 </View>
               )}
             </View>
-            <Text style={styles.authorTime}>{post.timeAgo}</Text>
+            {post.timeAgo ? <Text style={styles.authorTime}>{post.timeAgo}</Text> : null}
           </View>
         </TouchableOpacity>
-        <View style={styles.categoryPill}>
-          <Text style={styles.categoryPillText}>{post.category}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity onPress={() => onReport(post.id)} style={styles.iconBtn}>
+            <Ionicons name="flag-outline" size={16} color="#9ca3af" />
+          </TouchableOpacity>
+          {currentUserId === post.authorId && (
+            <TouchableOpacity onPress={() => onDelete(post.id)} style={styles.iconBtn}>
+              <Ionicons name="trash-outline" size={16} color="#ef4444" />
+            </TouchableOpacity>
+          )}
+          <View style={styles.categoryPill}>
+            <Text style={styles.categoryPillText}>{post.category}</Text>
+          </View>
         </View>
       </View>
 
@@ -791,7 +832,7 @@ const PostCard: React.FC<PostCardProps> = ({
             showsHorizontalScrollIndicator={false}
             keyExtractor={(_, i) => `${post.id}_m_${i}`}
             onMomentumScrollEnd={(e) => {
-              const idx = Math.round(e.nativeEvent.contentOffset.x / (SCREEN_WIDTH - 32));
+              const idx = Math.round(e.nativeEvent.contentOffset.x / cardWidth);
               setMediaIndex(idx);
             }}
             renderItem={({ item, index: mi }) => {
@@ -800,7 +841,7 @@ const PostCard: React.FC<PostCardProps> = ({
                   <TouchableOpacity
                     activeOpacity={1}
                     onPress={toggleControls}
-                    style={styles.mediaItem}
+                    style={[styles.mediaItem, mediaStyle]}
                   >
                     <View style={styles.videoWrapper}>
                       <Video
@@ -845,9 +886,9 @@ const PostCard: React.FC<PostCardProps> = ({
                   </TouchableOpacity>
                 );
               }
-              return <Image source={{ uri: item.url }} style={styles.mediaItem} resizeMode="cover" />;
+              return <Image source={{ uri: item.url }} style={[styles.mediaItem, mediaStyle]} resizeMode="cover" />;
             }}
-            snapToInterval={SCREEN_WIDTH - 32}
+            snapToInterval={cardWidth}
             decelerationRate="fast"
           />
           {post.media.length > 1 && (
@@ -923,13 +964,163 @@ const CommunityPageContent = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const { createChat } = useChat();
 
-  // Background animations
+  const [ads, setAds] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const [reportPostId, setReportPostId] = useState<string | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [showBugReport, setShowBugReport] = useState(false);
+  const [bugDescription, setBugDescription] = useState('');
+  const [submittingBug, setSubmittingBug] = useState(false);
+
+  const requireAuth = () => {
+    if (!user) {
+      Alert.alert(
+        'Create an account',
+        'Please create an account to access this feature.',
+        [
+          { text: 'Maybe later', style: 'cancel' },
+          { text: 'Sign up', onPress: () => router.push('./signup') },
+        ]
+      );
+      return false;
+    }
+    return true;
+  };
+
+  // ---------- Realtime chat subscription (FIXED) ----------
+  const channelRef = useRef<any>(null);
+  useEffect(() => {
+    if (!user) return;
+
+    fetchUnreadCount();
+
+    if (!channelRef.current) {
+      const channel = supabase
+        .channel('messages_channel')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages' },
+          () => {
+            fetchUnreadCount();
+          }
+        )
+        .subscribe();
+
+      channelRef.current = channel;
+    }
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, [user]);
+
+  const fetchUnreadCount = async () => {
+    if (!user) return;
+    const { data: chatsData } = await supabase
+      .from('chats')
+      .select('id')
+      .or(`participant1_id.eq.${user.id},participant2_id.eq.${user.id}`);
+
+    if (!chatsData) return;
+    const chatIds = chatsData.map((c) => c.id);
+
+    const { count } = await supabase
+      .from('messages')
+      .select('*', { count: 'exact', head: true })
+      .in('chat_id', chatIds)
+      .eq('is_read', false)
+      .neq('sender_id', user.id);
+
+    setUnreadCount(count || 0);
+  };
+
+  const planPriority: { [key: string]: number } = {
+    'Premium': 3,
+    'Growth': 2,
+    'Basic': 1,
+    'Pay-Per-Post': 0,
+  };
+
+  const fetchPromotedProducts = async () => {
+    const { data } = await supabase
+      .from('marketplace_ads')
+      .select('*, seller:users!marketplace_ads_user_id_fkey (username, avatar)')
+      .order('created_at', { ascending: false });
+
+    if (data) {
+      const sorted = data.sort((a, b) => {
+        const pA = planPriority[a.plan_name] || 0;
+        const pB = planPriority[b.plan_name] || 0;
+        if (pB !== pA) return pB - pA;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      setAds(sorted);
+    }
+  };
+
+  useEffect(() => {
+    fetchPromotedProducts();
+  }, []);
+
+  const AdCard = ({ ad }: { ad: any }) => {
+    const sellerUsername = ad.seller?.username || 'Seller';
+    const sellerAvatar = ad.seller?.avatar || '🌾';
+    const isSellerAvatarUrl = sellerAvatar && (sellerAvatar.startsWith('http') || sellerAvatar.startsWith('file'));
+    return (
+      <View style={styles.adCard}>
+        <View style={styles.adBadge}>
+          <Text style={styles.adBadgeText}>AD</Text>
+        </View>
+        <Image
+          source={{ uri: ad.images?.[0] || 'https://via.placeholder.com/300' }}
+          style={styles.adImage}
+          resizeMode="cover"
+        />
+        <View style={styles.adContent}>
+          <Text style={styles.adProductName}>{ad.product_name}</Text>
+          <Text style={styles.adDescription} numberOfLines={2}>
+            {ad.description}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            {isSellerAvatarUrl ? (
+              <Image source={{ uri: sellerAvatar }} style={{ width: 20, height: 20, borderRadius: 10 }} />
+            ) : (
+              <Text style={{ fontSize: 16 }}>{sellerAvatar}</Text>
+            )}
+            <Text style={styles.adSeller}>by @{sellerUsername}</Text>
+          </View>
+          <View style={styles.adFooter}>
+            <Text style={styles.adPrice}>R{ad.price}</Text>
+            <TouchableOpacity
+              style={styles.adCtaButton}
+              onPress={() => {
+                if (!requireAuth()) return;
+                openChatWithUser(
+                  ad.user_id,
+                  sellerUsername,
+                  sellerAvatar,
+                  `Hello ${sellerUsername}, is this deal still available? I'm interested in buying.`
+                );
+              }}
+            >
+              <Text style={styles.adCtaText}>View Deal</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   const bgScale = useSharedValue(1);
   const bgScale2 = useSharedValue(1.2);
   useEffect(() => {
     bgScale.value = withRepeat(withTiming(1.15, { duration: 8000 }), -1, true);
     bgScale2.value = withRepeat(withTiming(1, { duration: 10000 }), -1, true);
-  }, []);
+  }, [bgScale, bgScale2]);
   const bgBlob1Style = useAnimatedStyle(() => ({ transform: [{ scale: bgScale.value }], opacity: 0.35 }));
   const bgBlob2Style = useAnimatedStyle(() => ({ transform: [{ scale: bgScale2.value }], opacity: 0.25 }));
 
@@ -966,9 +1157,9 @@ const CommunityPageContent = () => {
       let userMap: Record<string, { username: string; avatar: string }> = {};
       if (userIds.length > 0) {
         const { data: usersData } = await supabase
-          .from('users').select('user_id, username').in('user_id', userIds);
+          .from('users').select('user_id, username, avatar').in('user_id', userIds);
         if (usersData) {
-          userMap = Object.fromEntries(usersData.map((u) => [u.user_id, { username: u.username, avatar: '🌾' }]));
+          userMap = Object.fromEntries(usersData.map((u) => [u.user_id, { username: u.username, avatar: u.avatar || '🌾' }]));
         }
       }
 
@@ -983,10 +1174,12 @@ const CommunityPageContent = () => {
         const userInfo = userMap[row.user_id] || { username: 'Farmer', avatar: '🌾' };
         let media: MediaItem[] = [];
         if (Array.isArray(row.media_urls) && row.media_urls.length > 0) {
-          media = row.media_urls.map((url: string) => ({
-            url,
-            type: row.media_type === 'video' ? 'video' : 'image',
-          }));
+          media = row.media_urls
+            .filter((url: string) => url && !url.includes('your-storage-url'))
+            .map((url: string) => ({
+              url: Platform.OS === 'web' ? `${url}?bypass_sw=${Date.now()}` : url,
+              type: row.media_type === 'video' ? 'video' : 'image',
+            }));
         }
         return {
           id: String(row.id),
@@ -1006,7 +1199,8 @@ const CommunityPageContent = () => {
         };
       });
       setPosts(mapped);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError' || err.message?.includes('AbortError')) return;
       console.error('Failed to fetch posts', err);
       Alert.alert('Error', 'Could not load posts');
     } finally {
@@ -1014,7 +1208,20 @@ const CommunityPageContent = () => {
     }
   }, [activeCategory, user]);
 
-  useEffect(() => { fetchPosts(); }, [activeCategory]);
+  useEffect(() => { fetchPosts(); }, [activeCategory, fetchPosts]);
+
+  const combinedFeed = useMemo(() => {
+    const feed: any[] = [];
+    let adIndex = 0;
+    posts.forEach((post, index) => {
+      feed.push(post);
+      if ((index + 1) % 3 === 0 && adIndex < ads.length) {
+        feed.push({ type: 'ad', data: ads[adIndex] });
+        adIndex++;
+      }
+    });
+    return feed;
+  }, [posts, ads]);
 
   const fetchComments = useCallback(async (postId: string): Promise<Comment[]> => {
     try {
@@ -1024,7 +1231,7 @@ const CommunityPageContent = () => {
           replies:comments!parent_comment_id(id, user_id, content, created_at, likes_count)`)
         .eq('post_id', postId)
         .is('parent_comment_id', null)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false });
       if (error) throw error;
       if (!data || data.length === 0) return [];
 
@@ -1079,24 +1286,15 @@ const CommunityPageContent = () => {
   }, [user]);
 
   const handleComment = useCallback(async (postId: string) => {
-    if (!user) {
-      Alert.alert('Login Required', 'Please log in to comment', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Login', onPress: () => router.push('/login') },
-      ]);
-      return;
-    }
+    if (!requireAuth()) return;
     const comments = await fetchComments(postId);
     setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments } : p)));
     const post = posts.find((p) => p.id === postId);
     if (post) setCommentModalPost({ ...post, comments });
-  }, [user, fetchComments, posts, router]);
+  }, [user, fetchComments, posts, requireAuth]);
 
   const handleLike = useCallback(async (id: string) => {
-    if (!user) {
-      Alert.alert('Login Required', 'Please log in to like posts');
-      return;
-    }
+    if (!requireAuth()) return;
     const post = posts.find((p) => p.id === id);
     if (!post) return;
     setPosts((prev) =>
@@ -1108,17 +1306,17 @@ const CommunityPageContent = () => {
     }
     try {
       if (post.likedByUser) {
-        await supabase.from('post_likes').delete().eq('post_id', id).eq('user_id', user.id);
+        await supabase.from('post_likes').delete().eq('post_id', id).eq('user_id', user!.id);
         await supabase.rpc('decrement_post_likes', { post_id: id });
       } else {
-        await supabase.from('post_likes').insert({ post_id: id, user_id: user.id });
+        await supabase.from('post_likes').insert({ post_id: id, user_id: user!.id });
         await supabase.rpc('increment_post_likes', { post_id: id });
       }
     } catch { Alert.alert('Error', 'Failed to like post'); }
-  }, [user, posts, commentModalPost]);
+  }, [user, posts, commentModalPost, requireAuth]);
 
   const handleCommentLike = useCallback(async (commentId: string, isReply: boolean, parentCommentId?: string) => {
-    if (!user || !commentModalPost) return;
+    if (!requireAuth() || !commentModalPost) return;
     const updateComments = (comments: Comment[]): Comment[] =>
       comments.map((c) => {
         if (isReply && c.id === parentCommentId) {
@@ -1140,53 +1338,111 @@ const CommunityPageContent = () => {
     );
     try {
       const { data: existing } = await supabase.from('comment_likes').select('id')
-        .eq('comment_id', commentId).eq('user_id', user.id).maybeSingle();
+        .eq('comment_id', commentId).eq('user_id', user!.id).maybeSingle();
       if (existing) {
         await supabase.from('comment_likes').delete().eq('id', existing.id);
       } else {
-        await supabase.from('comment_likes').insert({ comment_id: commentId, user_id: user.id });
+        await supabase.from('comment_likes').insert({ comment_id: commentId, user_id: user!.id });
       }
     } catch { Alert.alert('Error', 'Could not like comment'); }
-  }, [user, commentModalPost]);
+  }, [user, commentModalPost, requireAuth]);
 
   const handleCommentDelete = useCallback(async (commentId: string) => {
-    if (!user || !commentModalPost) return;
+    if (!requireAuth() || !commentModalPost) return;
     try {
-      await supabase.from('comments').delete().eq('id', commentId).eq('user_id', user.id);
+      await supabase.from('comments').delete().eq('id', commentId).eq('user_id', user!.id);
       const newComments = await fetchComments(commentModalPost.id);
       setCommentModalPost((prev) => prev ? { ...prev, comments: newComments, replies: newComments.length } : prev);
       setPosts((prev) =>
         prev.map((p) => (p.id === commentModalPost.id ? { ...p, comments: newComments, replies: newComments.length } : p))
       );
     } catch { Alert.alert('Error', 'Could not delete comment'); }
-  }, [user, commentModalPost, fetchComments]);
+  }, [user, commentModalPost, fetchComments, requireAuth]);
 
   const handleCommentSubmit = useCallback(async (text: string, replyingTo: { commentId: string; username: string } | null) => {
-    if (!user || !commentModalPost) {
-      Alert.alert('Login Required', 'Please log in to comment');
-      return;
-    }
+    if (!requireAuth() || !commentModalPost) return;
     try {
       const { data, error } = await supabase.from('comments').insert({
         post_id: commentModalPost.id,
-        user_id: user.id,
+        user_id: user!.id,
         content: text,
         parent_comment_id: replyingTo?.commentId ?? null,
+        created_at: new Date().toISOString(),
       }).select().single();
       if (error) throw error;
-      await processMentions(text, user.id, commentModalPost.id, data.id);
+      await processMentions(text, user!.id, commentModalPost.id, data.id);
       await supabase.rpc('increment_post_replies', { post_id: commentModalPost.id });
       const newComments = await fetchComments(commentModalPost.id);
       setCommentModalPost((prev) => prev ? { ...prev, comments: newComments, replies: newComments.length } : prev);
       setPosts((prev) =>
         prev.map((p) => (p.id === commentModalPost.id ? { ...p, comments: newComments, replies: newComments.length } : p))
       );
-    } catch (err) { Alert.alert('Error', 'Failed to post comment'); }
-  }, [user, commentModalPost, fetchComments]);
+    } catch { Alert.alert('Error', 'Failed to post comment'); }
+  }, [user, commentModalPost, fetchComments, requireAuth]);
+
+  const handleDeletePost = async (postId: string) => {
+    if (!requireAuth()) return;
+    Alert.alert(
+      'Delete post',
+      'Are you sure you want to delete this post? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase.from('posts').delete().eq('id', postId);
+              if (error) throw error;
+              setPosts((prev) => prev.filter((p) => p.id !== postId));
+            } catch (err) {
+              Alert.alert('Error', 'Failed to delete post');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleReportSubmit = async () => {
+    if (!reportPostId || !reportReason) return;
+    try {
+      await supabase.from('post_reports').insert({
+        post_id: reportPostId,
+        reported_by: user!.id,
+        reason: reportReason,
+        created_at: new Date().toISOString(),
+      });
+      Alert.alert('Reported', 'Thank you for reporting this post.');
+      setReportPostId(null);
+      setReportReason('');
+    } catch (err) {
+      Alert.alert('Error', 'Could not submit report');
+    }
+  };
+
+  const handleBugSubmit = async () => {
+    if (!bugDescription.trim()) return;
+    setSubmittingBug(true);
+    try {
+      await supabase.from('bug_reports').insert({
+        user_id: user?.id || null,
+        description: bugDescription.trim(),
+        created_at: new Date().toISOString(),
+      });
+      Alert.alert('Thank you', 'Bug report submitted.');
+      setShowBugReport(false);
+      setBugDescription('');
+    } catch (err) {
+      Alert.alert('Error', 'Could not submit bug report');
+    } finally {
+      setSubmittingBug(false);
+    }
+  };
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     const videoItem = viewableItems.find((item: any) =>
-      item.item.media.some((m: MediaItem) => m.type === 'video')
+      item.item?.media && item.item.media.some((m: MediaItem) => m.type === 'video')
     );
     if (videoItem) {
       setVisibleVideoId(videoItem.item.id);
@@ -1196,15 +1452,14 @@ const CommunityPageContent = () => {
     }
   }).current;
 
-  const openChatWithUser = async (userId: string, name: string, avatar: string) => {
-    const chatId = await createChat(userId, name, avatar);
+  const openChatWithUser = async (userId: string, name: string, avatar: string, initialMessage?: string) => {
+    if (!requireAuth()) return;
+    const chatId = await createChat(userId, name, avatar, initialMessage);
     setActiveChatId(chatId);
-    setShowChatList(false);
     setChatSearchQuery('');
     setUserSearchResults([]);
   };
 
-  // ---------- User search for messages ----------
   const searchUsers = useCallback(async (query: string) => {
     if (!query.trim()) {
       setUserSearchResults([]);
@@ -1221,7 +1476,7 @@ const CommunityPageContent = () => {
   useEffect(() => {
     const handler = setTimeout(() => {
       searchUsers(chatSearchQuery);
-    }, 300); // small debounce
+    }, 300);
     return () => clearTimeout(handler);
   }, [chatSearchQuery, searchUsers]);
 
@@ -1257,11 +1512,26 @@ const CommunityPageContent = () => {
           </Animated.View>
 
           <View style={styles.fixedHeader}>
-            <MobileHeader />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <MobileHeader />
+              <TouchableOpacity
+                onPress={() => setShowBugReport(true)}
+                style={styles.bugReportBtn}
+              >
+                <Ionicons name="bug-outline" size={22} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
             <Animated.View entering={FadeIn.delay(100)} style={styles.searchWrap}>
               <GlassCard style={styles.searchCard}>
                 <View style={styles.searchRow}>
-                  <TouchableOpacity style={styles.addPostBtn} onPress={() => setShowCreateModal(true)} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.addPostBtn}
+                    onPress={() => {
+                      if (!requireAuth()) return;
+                      setShowCreateModal(true);
+                    }}
+                    activeOpacity={0.7}
+                  >
                     <Ionicons name="add-circle" size={24} color="#22c55e" />
                   </TouchableOpacity>
                   <Ionicons name="search" size={18} color="#9ca3af" />
@@ -1290,15 +1560,34 @@ const CommunityPageContent = () => {
           </View>
 
           <FlatList
-            data={filteredPosts}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item, index }) => (
-              <PostCard
-                post={item} onLike={handleLike} onComment={handleComment}
-                onOpenChat={openChatWithUser} videoRefs={videoRefs}
-                visibleVideoId={visibleVideoId} renderMentions={renderMentions} index={index}
-              />
-            )}
+            data={combinedFeed}
+            keyExtractor={(item, index) =>
+              item.type === 'ad' ? `ad-${item.data.id}-${index}` : `post-${item.id}`
+            }
+            renderItem={({ item, index }) => {
+              if (item.type === 'ad') {
+                return <AdCard ad={item.data} />;
+              }
+              return (
+                <PostCard
+                  post={item}
+                  onLike={handleLike}
+                  onComment={handleComment}
+                  onOpenChat={openChatWithUser}
+                  onReport={(postId) => {
+                    if (!requireAuth()) return;
+                    setReportPostId(postId);
+                    setReportReason('');
+                  }}
+                  onDelete={handleDeletePost}
+                  videoRefs={videoRefs}
+                  visibleVideoId={visibleVideoId}
+                  renderMentions={renderMentions}
+                  index={index}
+                  currentUserId={user?.id}
+                />
+              );
+            }}
             contentContainerStyle={{ paddingTop: FIXED_HEADER_TOTAL, paddingBottom: BOTTOM_NAV_HEIGHT + 16 }}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
@@ -1314,9 +1603,22 @@ const CommunityPageContent = () => {
           <BottomNav />
         </View>
 
-        <TouchableOpacity style={styles.fab} onPress={() => setShowChatList(true)}>
-          <Ionicons name="chatbubbles" size={24} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.fabContainer}>
+          <TouchableOpacity style={[styles.fab, styles.aiFab]} onPress={() => router.push('/')}>
+            <Ionicons name="sparkles" size={24} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.fab} onPress={() => {
+            if (!requireAuth()) return;
+            setShowChatList(true);
+          }}>
+            <Ionicons name="chatbubbles" size={24} color="#fff" />
+            {unreadCount > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
 
         {showChatList && (
           <View style={styles.modalOverlay}>
@@ -1394,8 +1696,75 @@ const CommunityPageContent = () => {
 
         {showCreateModal && (
           <CreatePostModal visible={showCreateModal} onClose={() => setShowCreateModal(false)}
-            onPosted={() => { setShowCreateModal(false); fetchPosts(); }} userId={user?.id} />
+            onPosted={() => { setShowCreateModal(false); fetchPosts(); }} userId={user?.id || ''} />
         )}
+
+        {/* Report Modal */}
+        {reportPostId && (
+          <Modal visible transparent animationType="fade">
+            <View style={styles.reportOverlay}>
+              <View style={styles.reportModal}>
+                <Text style={styles.reportModalTitle}>Report Post</Text>
+                {['Spam', 'Inappropriate content', 'Harassment', 'False information', 'Other'].map((reason) => (
+                  <TouchableOpacity
+                    key={reason}
+                    style={[styles.reportOption, reportReason === reason && styles.reportOptionSelected]}
+                    onPress={() => setReportReason(reason)}
+                  >
+                    <Text style={reportReason === reason ? styles.reportOptionTextSelected : undefined}>
+                      {reason}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <View style={styles.reportActions}>
+                  <TouchableOpacity onPress={() => setReportPostId(null)}>
+                    <Text style={styles.reportCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleReportSubmit}
+                    disabled={!reportReason}
+                    style={[styles.reportSubmitBtn, !reportReason && styles.reportSubmitBtnDisabled]}
+                  >
+                    <Text style={styles.reportSubmitText}>Submit</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {/* Bug Report Modal */}
+        <Modal visible={showBugReport} transparent animationType="fade">
+          <View style={styles.reportOverlay}>
+            <View style={styles.reportModal}>
+              <Text style={styles.reportModalTitle}>Report a Bug</Text>
+              <TextInput
+                style={styles.bugInput}
+                placeholder="Describe the issue..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                value={bugDescription}
+                onChangeText={setBugDescription}
+              />
+              <View style={styles.reportActions}>
+                <TouchableOpacity onPress={() => setShowBugReport(false)}>
+                  <Text style={styles.reportCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleBugSubmit}
+                  disabled={!bugDescription.trim() || submittingBug}
+                  style={[styles.reportSubmitBtn, (!bugDescription.trim() || submittingBug) && styles.reportSubmitBtnDisabled]}
+                >
+                  {submittingBug ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.reportSubmitText}>Submit</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -1416,130 +1785,86 @@ const styles = StyleSheet.create({
   bgBlob: { position: 'absolute', borderRadius: 999, overflow: 'hidden' },
   bgBlob1: { left: -SCREEN_WIDTH * 0.2, top: -100, width: SCREEN_WIDTH * 0.6, height: SCREEN_WIDTH * 0.6, backgroundColor: 'rgba(34,197,94,0.15)' },
   bgBlob2: { right: -SCREEN_WIDTH * 0.2, bottom: 100, width: SCREEN_WIDTH * 0.7, height: SCREEN_WIDTH * 0.7, backgroundColor: 'rgba(16,185,129,0.12)' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 14, color: '#9ca3af' },
-  fixedHeader: {
-    position: 'absolute', paddingTop: 90, top: 0, left: 0, right: 0, zIndex: 10, backgroundColor: '#f0fdf4',
-  },
+  fixedHeader: { position: 'absolute', paddingTop: 90, top: 0, left: 0, right: 0, zIndex: 10, backgroundColor: '#f0fdf4' },
+  bugReportBtn: { marginRight: 16, padding: 8 },
   searchWrap: { paddingHorizontal: 16, marginBottom: 12, marginTop: 8 },
   searchCard: { padding: 6 },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  addPostBtn: { padding: 4 },
+  searchRow: { flexDirection: 'row', alignItems: 'center' },
+  addPostBtn: { padding: 4, marginRight: 8 },
   searchInput: { flex: 1, fontSize: 14, color: '#111827', paddingVertical: 8 },
-  tabsRow: { paddingHorizontal: 16, gap: 8, marginBottom: 8 },
+  tabsRow: { paddingHorizontal: 16, marginBottom: 8 },
   tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: '#e5e7eb' },
   tabActive: { backgroundColor: '#22c55e', borderColor: '#16a34a' },
   tabText: { fontSize: 13, fontWeight: '500', color: '#6b7280' },
   tabTextActive: { color: '#fff', fontWeight: '600' },
-
-  card: {
-    backgroundColor: '#fff',
-    marginBottom: 8,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
-    overflow: 'hidden',
-  },
+  card: { backgroundColor: '#fff', marginBottom: 8, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 2, overflow: 'hidden', marginHorizontal: 16 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 },
-  authorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  authorAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
+  authorRow: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  authorAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   authorAvatarText: { fontSize: 22 },
+  authorAvatarImage: { width: 44, height: 44, borderRadius: 22 },
   authorInfo: { flex: 1 },
-  authorNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  authorNameRow: { flexDirection: 'row', alignItems: 'center' },
   authorName: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  officialBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#22c55e', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 },
+  officialBadge: { flexDirection: 'row', alignItems: 'center', marginLeft: 6, backgroundColor: '#22c55e', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 },
   officialText: { fontSize: 10, fontWeight: '600', color: '#fff' },
   authorTime: { fontSize: 12, color: '#9ca3af', marginTop: 1 },
   categoryPill: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   categoryPillText: { fontSize: 11, fontWeight: '600', color: '#16a34a' },
+  iconBtn: { padding: 4 },
   cardText: { fontSize: 15, color: '#374151', lineHeight: 22, paddingHorizontal: 16, paddingBottom: 12 },
   mentionLink: { color: '#16a34a', fontWeight: '600' },
-
   mediaContainer: { marginBottom: 4 },
-  mediaItem: { width: SCREEN_WIDTH - 0, height: SCREEN_WIDTH * 0.6, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
+  mediaItem: { aspectRatio: 16 / 10, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   mediaVideo: { width: '100%', height: '100%' },
   videoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
-  mediaDots: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingVertical: 8 },
+  mediaDots: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 8 },
   mediaDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#d1d5db' },
   mediaDotActive: { backgroundColor: '#22c55e', width: 18 },
-
-  videoControlsOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playPauseButton: {
-    position: 'absolute',
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 30,
-    padding: 12,
-  },
-  muteButton: {
-    position: 'absolute',
-    bottom: 16,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-    padding: 8,
-  },
-
+  videoControlsOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
+  playPauseButton: { position: 'absolute', alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 30, padding: 12 },
+  muteButton: { position: 'absolute', bottom: 16, right: 16, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, padding: 8 },
   reactionSummary: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 },
-  reactionItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  reactionIconBg: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center' },
+  reactionItem: { flexDirection: 'row', alignItems: 'center' },
+  reactionIconBg: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', marginRight: 4 },
   reactionCount: { fontSize: 13, color: '#6b7280' },
   reactionComments: { fontSize: 13, color: '#6b7280' },
-
   actionDivider: { height: 1, backgroundColor: '#f3f4f6', marginHorizontal: 16 },
   actionBar: { flexDirection: 'row', paddingVertical: 4 },
-  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   actionBtnText: { fontSize: 14, fontWeight: '500', color: '#6b7280' },
   actionBtnTextActive: { color: '#ef4444' },
-
-  latestComment: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
+  latestComment: { flexDirection: 'row', alignItems: 'flex-start' },
   latestCommentAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
   latestCommentBubble: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
   latestCommentUsername: { fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 2 },
   latestCommentText: { fontSize: 13, color: '#4b5563', lineHeight: 18 },
-
-  emptyFeed: { alignItems: 'center', paddingVertical: 60, gap: 12 },
+  emptyFeed: { alignItems: 'center', paddingVertical: 60 },
   emptyFeedTitle: { fontSize: 18, fontWeight: '700', color: '#6b7280' },
   emptyFeedSub: { fontSize: 14, color: '#9ca3af', textAlign: 'center', paddingHorizontal: 32 },
-
-  fab: { position: 'absolute', bottom: BOTTOM_NAV_HEIGHT + 16, right: 20, backgroundColor: '#22c55e', width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 6, zIndex: 100 },
+  fabContainer: { position: 'absolute', bottom: BOTTOM_NAV_HEIGHT + 16, right: 20, alignItems: 'center', gap: 16, zIndex: 100 },
+  fab: { backgroundColor: '#22c55e', width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 6 },
+  aiFab: { backgroundColor: '#3b82f6' },
+  unreadBadge: { position: 'absolute', top: -4, right: -4, backgroundColor: '#ef4444', borderRadius: 10, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: '#fff' },
+  unreadBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700', textAlign: 'center' },
   modalOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#fff', zIndex: 200 },
-
   chatListModal: { flex: 1 },
-  chatSearchBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: 16, paddingVertical: 10,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
-  },
+  chatSearchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
   chatSearchInput: { flex: 1, fontSize: 14, color: '#111827', paddingVertical: 8 },
-
-  userSearchItem: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
-  },
-  userSearchAvatar: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: '#dcfce7',
-    alignItems: 'center', justifyContent: 'center', marginRight: 12,
-  },
+  userSearchItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  userSearchAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   userSearchAvatarText: { fontSize: 22 },
   userSearchName: { fontSize: 16, fontWeight: '500', color: '#111827' },
   emptySearch: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
   emptySearchText: { fontSize: 14, color: '#9ca3af' },
-
   commentScreen: { flex: 1, backgroundColor: '#fff' },
   commentScreenHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6', backgroundColor: '#fff' },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   commentScreenTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
   postSummary: { backgroundColor: '#f9fafb', marginHorizontal: 16, marginTop: 12, marginBottom: 8, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#f3f4f6' },
-  postSummaryAuthor: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  postSummaryAuthor: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   postSummaryAvatar: { fontSize: 28, width: 44, height: 44, textAlign: 'center', textAlignVertical: 'center', backgroundColor: '#dcfce7', borderRadius: 22, overflow: 'hidden' },
   postSummaryName: { fontSize: 15, fontWeight: '700', color: '#111827' },
   postSummaryTime: { fontSize: 12, color: '#9ca3af' },
@@ -1549,7 +1874,7 @@ const styles = StyleSheet.create({
   postStatItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   postStatText: { fontSize: 13, color: '#6b7280' },
   commentsListContent: { paddingHorizontal: 16, paddingBottom: 16, paddingTop: 4 },
-  commentItem: { flexDirection: 'row', gap: 10, marginVertical: 8 },
+  commentItem: { flexDirection: 'row', marginVertical: 8 },
   commentAvatarWrap: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 },
   commentAvatarText: { fontSize: 18 },
   commentBody: { flex: 1 },
@@ -1577,11 +1902,7 @@ const styles = StyleSheet.create({
   emptyComments: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   emptyCommentsTitle: { fontSize: 16, fontWeight: '600', color: '#6b7280' },
   emptyCommentsSub: { fontSize: 13, color: '#9ca3af' },
-  inputBar: {
-    backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingHorizontal: 12, paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12, shadowColor: '#000', shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.06, shadowRadius: 8, elevation: 10,
-  },
+  inputBar: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingHorizontal: 12, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 24 : 12, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 10 },
   replyingBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f0fdf4', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#22c55e' },
   replyingBannerText: { flex: 1, fontSize: 13, color: '#16a34a', fontWeight: '500' },
   replyingCancelBtn: { padding: 2 },
@@ -1593,4 +1914,28 @@ const styles = StyleSheet.create({
   sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   sendBtnActive: { backgroundColor: '#22c55e' },
   sendBtnDisabled: { backgroundColor: '#e5e7eb' },
+  adCard: { backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 24, borderWidth: 1, borderColor: 'rgba(34,197,94,0.2)', marginBottom: 16, overflow: 'hidden', position: 'relative', marginHorizontal: 16 },
+  adBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: '#f97316', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, zIndex: 1 },
+  adBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  adImage: { width: '100%', aspectRatio: 16 / 9 },
+  adContent: { padding: 16 },
+  adProductName: { fontSize: 18, fontWeight: '700', color: '#11181C', marginBottom: 8 },
+  adDescription: { fontSize: 14, color: '#4b5563', marginBottom: 12 },
+  adSeller: { fontSize: 12, color: '#6b7280' },
+  adFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  adPrice: { fontSize: 20, fontWeight: '700', color: '#16a34a' },
+  adCtaButton: { backgroundColor: '#22c55e', paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20 },
+  adCtaText: { color: '#fff', fontWeight: '600' },
+  reportOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  reportModal: { backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 },
+  reportModalTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 16, textAlign: 'center' },
+  reportOption: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#f9fafb', marginBottom: 8 },
+  reportOptionSelected: { backgroundColor: '#dcfce7', borderWidth: 1, borderColor: '#22c55e' },
+  reportOptionTextSelected: { fontWeight: '600', color: '#16a34a' },
+  reportActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
+  reportCancelText: { fontSize: 14, color: '#6b7280', paddingVertical: 8 },
+  reportSubmitBtn: { backgroundColor: '#22c55e', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 20 },
+  reportSubmitBtnDisabled: { backgroundColor: '#d1d5db' },
+  reportSubmitText: { color: '#fff', fontWeight: '600' },
+  bugInput: { backgroundColor: '#f9fafb', borderRadius: 12, padding: 12, fontSize: 14, color: '#111827', minHeight: 80, textAlignVertical: 'top', marginBottom: 8 },
 });

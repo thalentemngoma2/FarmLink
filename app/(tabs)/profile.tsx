@@ -1,48 +1,54 @@
-// app/(tabs)/profile.tsx
-import { BottomNav } from '@/components/bottom-nav';
-import { GlassCard } from '@/components/ui/glass-card';
-import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Image,
+  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import Animated, {
   FadeIn,
+  interpolate,
   SlideInDown,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
-  withTiming
+  withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// -----------------------------------------------------------------------------
-// Types (based on public.users table only)
-// -----------------------------------------------------------------------------
-interface UserData {
-  user_id: string;
-  username: string;
-  email: string;
-  phone_number: string | null;
-  role: string;
-  created_at: string;
-}
+import { BottomNav } from '@/components/bottom-nav';
+import { MobileHeader } from '@/components/mobile-header';
+import { GlassCard } from '@/components/ui/glass-card';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
-interface UserStats {
+// Types
+interface ProfileData {
+  id: string;
+  username: string;
+  avatar: string | null;
+  location: string;
+  join_date: string;
+  farm_size: string;
+  main_crops: string;
+  farming_type: string;
   questions_count: number;
   answers_count: number;
-  likes_count: number;      // likes received on user's posts
+  likes_count: number;
+  isRetailer?: boolean;
 }
 
 interface Achievement {
@@ -50,11 +56,10 @@ interface Achievement {
   earned_at: string;
 }
 
-// Static menu items
 const menuItems = [
-  { icon: 'notifications-outline', label: 'Notifications', route: '/notifications', badge: 3 },
-  { icon: 'settings-outline', label: 'Settings', route: '/settings' },
-  { icon: 'help-circle-outline', label: 'Help & Support', route: '/help' },
+  { icon: 'notifications-outline', label: 'Notifications', badge: 3 },
+  { icon: 'settings-outline', label: 'Settings' },
+  { icon: 'help-circle-outline', label: 'Help & Support' },
   { icon: 'log-out-outline', label: 'Log Out', danger: true },
 ];
 
@@ -67,152 +72,235 @@ const achievementsList = [
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [userData, setUserData] = useState<UserData | null>(null);
-  const [stats, setStats] = useState<UserStats>({ questions_count: 0, answers_count: 0, likes_count: 0 });
+  const [profile, setProfile] = useState<ProfileData | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user, logout, isLoading: authLoading } = useAuth();
 
-  // ---------------------------------------------------------------------------
-  // Load user & stats (with auto‑creation of missing user)
-  // ---------------------------------------------------------------------------
+  // Edit profile modal
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  // NEW: local preview state
+  const [localAvatar, setLocalAvatar] = useState<string | null>(null);
+
+  // Determine user role from AuthContext
+  const userRole = user?.role || 'farmer';
+
+  // Fetch user profile from `users` table and optionally from `profiles`/`retail_profiles`
+  const fetchProfile = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('username, avatar, created_at')
+        .eq('user_id', user.id)
+        .single();
+
+      if (userError) throw userError;
+
+      const { data: farmerData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const { data: retailData } = await supabase
+        .from('retail_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const isRetailer = !!retailData;
+
+      setProfile({
+        id: user.id,
+        username: userData.username || 'user',
+        avatar: userData.avatar || null,
+        location: farmerData?.location || retailData?.city || 'Location not set',
+        join_date: userData.created_at || new Date().toISOString(),
+        farm_size: farmerData?.farm_size || 'N/A',
+        main_crops: farmerData?.main_crops || 'N/A',
+        farming_type: farmerData?.farm_type || retailData?.business_type || 'Not set',
+        questions_count: 0,
+        answers_count: 0,
+        likes_count: 0,
+        isRetailer,
+      });
+    } catch (err) {
+      console.error('Error fetching profile:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
   useEffect(() => {
-    const loadUserAndData = async () => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  // Helper: check if an achievement is earned
+  const isEarned = (achievementId: string) => {
+    return achievements.some((a) => a.achievement_id === achievementId);
+  };
+
+  // ---------------- Logout ----------------
+  const handleLogout = async () => {
+    const executeLogout = async () => {
       try {
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) {
-          router.replace('/login');
-          return;
-        }
-
-        // Try to fetch from users – use maybeSingle() to avoid 406 error when no row
-        let { data: userInfo, error: userError } = await supabase
-          .from('users')
-          .select('user_id, username, email, phone_number, role, created_at')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        // If not found, create a minimal entry
-        if (!userInfo) {
-          const newUser = {
-            user_id: user.id,
-            username: user.email?.split('@')[0] || 'Farmer',
-            email: user.email!,
-            role: 'farmer',
-            created_at: new Date().toISOString(),
-            // If your table has an 'updated_at' column, include it:
-            // updated_at: new Date().toISOString(),
-          };
-          const { data: inserted, error: insertError } = await supabase
-            .from('users')
-            .insert(newUser)
-            .select('user_id, username, email, phone_number, role, created_at')
-            .single();
-
-          if (insertError) {
-            console.error('Failed to create user record', insertError);
-            throw new Error('Could not create profile');
-          }
-          userInfo = inserted;
-        } else if (userError) {
-          // Some other error occurred (e.g., network)
-          console.error('User fetch error', userError);
-          throw new Error('Could not load profile');
-        }
-
-        setUserData(userInfo);
-        await fetchUserStats(user.id);
-        await fetchAchievements(user.id);
-      } catch (err) {
-        console.error('Profile loading error', err);
-        Alert.alert('Error', 'Failed to load profile');
-      } finally {
-        setLoading(false);
+        if (logout) await logout();
+        router.replace('/login');
+      } catch (error) {
+        console.error('Logout error', error);
       }
     };
 
-    loadUserAndData();
-  }, []);
-
-  const fetchUserStats = async (userId: string) => {
-    try {
-      // questions count
-      const { count: questionsCount, error: qErr } = await supabase
-        .from('posts')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId);
-      if (qErr) console.warn('Questions count error', qErr);
-
-      // answers count
-      const { count: answersCount, error: aErr } = await supabase
-        .from('comments')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId);
-      if (aErr) console.warn('Answers count error', aErr);
-
-      // likes received: sum of post_likes where posts.user_id = userId
-      let likesReceived = 0;
-      const { data: userPosts, error: postsErr } = await supabase
-        .from('posts')
-        .select('id')
-        .eq('user_id', userId);
-      if (!postsErr && userPosts && userPosts.length > 0) {
-        const postIds = userPosts.map(p => p.id);
-        const { count: likedCount, error: likeErr } = await supabase
-          .from('post_likes')
-          .select('id', { count: 'exact', head: true })
-          .in('post_id', postIds);
-        if (!likeErr) likesReceived = likedCount || 0;
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to log out?')) {
+        await executeLogout();
       }
-
-      setStats({
-        questions_count: questionsCount || 0,
-        answers_count: answersCount || 0,
-        likes_count: likesReceived,
-      });
-    } catch (err) {
-      console.error('Failed to fetch user stats', err);
-    }
-  };
-
-  const fetchAchievements = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('user_achievements')
-        .select('achievement_id, earned_at')
-        .eq('user_id', userId);
-      if (error && error.code !== '42P01') {
-        console.warn('Achievements error', error);
-      } else if (data) {
-        setAchievements(data);
-      }
-    } catch (err) {
-      console.error('Achievements fetch error', err);
-    }
-  };
-
-  const isEarned = (id: string) => achievements.some(a => a.achievement_id === id);
-
-  const handleLogout = async () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out?',
-      [
+    } else {
+      Alert.alert('Log Out', 'Are you sure you want to log out?', [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: async () => {
-            await supabase.auth.signOut();
-            router.replace('/login');
-          },
-        },
-      ]
-    );
+        { text: 'Log Out', style: 'destructive', onPress: executeLogout },
+      ]);
+    }
   };
 
-  // ---------------------------------------------------------------------------
-  // Background animations
-  // ---------------------------------------------------------------------------
+  // ---------------- Pick & Upload Avatar (WITH INSTANT PREVIEW) ----------------
+  const pickAvatar = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Allow access to your photo library to change your avatar.');
+      return;
+    }
+
+    // Use the new MediaType API (avoid deprecation warning)
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], // or ImagePicker.MediaType.Images
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+
+    const file = result.assets[0];
+
+    // Instant local preview
+    setLocalAvatar(file.uri);
+    setUploadingAvatar(true);
+
+    try {
+      // Fetch blob from the local URI
+      const response = await fetch(file.uri);
+      if (!response.ok) throw new Error('Failed to read file for upload');
+      const blob = await response.blob();
+
+      // Determine proper file extension, fallback to 'jpg'
+      const uriParts = file.uri.split('.');
+      const candidate = uriParts.length > 1 ? uriParts.pop() : null;
+      const fileExt = (candidate && candidate.length <= 4 && !candidate.includes('/'))
+        ? candidate
+        : (blob.type === 'image/png' ? 'png' : 'jpg');
+      const filePath = `${user!.id}/${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, blob, {
+          contentType: blob.type || 'image/jpeg',
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      const publicUrl = urlData.publicUrl;
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ avatar: publicUrl })
+        .eq('user_id', user!.id);
+
+      if (updateError) throw updateError;
+
+      setProfile((prev) => (prev ? { ...prev, avatar: publicUrl } : prev));
+      Alert.alert('Success', 'Profile photo updated.');
+    } catch (err: any) {
+      Alert.alert('Upload failed', err.message || 'Could not upload avatar.');
+      // On failure, clear local preview so previous avatar remains
+      setLocalAvatar(null);
+    } finally {
+      setUploadingAvatar(false);
+      // Clear local preview after success or failure so the permanent URL is used
+      setLocalAvatar(null);
+    }
+  };
+
+  // ---------------- Edit Username ----------------
+  const startEditingUsername = () => {
+    if (!profile) return;
+    setNewUsername(profile.username);
+    setUsernameError(null);
+    setEditingUsername(true);
+  };
+
+  const cancelEditingUsername = () => {
+    setEditingUsername(false);
+    setUsernameError(null);
+  };
+
+  const saveUsername = async () => {
+    const trimmed = newUsername.trim();
+    if (!trimmed) {
+      setUsernameError('Username cannot be empty.');
+      return;
+    }
+    if (trimmed.length < 3) {
+      setUsernameError('Username must be at least 3 characters.');
+      return;
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(trimmed)) {
+      setUsernameError('Only letters, numbers and underscores allowed.');
+      return;
+    }
+
+    const { data: existing } = await supabase
+      .from('users')
+      .select('user_id')
+      .eq('username', trimmed)
+      .neq('user_id', user!.id)
+      .maybeSingle();
+
+    if (existing) {
+      setUsernameError('That username is already taken.');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ username: trimmed })
+        .eq('user_id', user!.id);
+
+      if (error) throw error;
+
+      setProfile((prev) => (prev ? { ...prev, username: trimmed } : prev));
+      setEditingUsername(false);
+      setUsernameError(null);
+    } catch (err: any) {
+      setUsernameError(err.message || 'Could not update username.');
+    }
+  };
+
+  // ---------------- Background animation ----------------
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
   const bgScale2 = useSharedValue(1.2);
@@ -223,20 +311,22 @@ export default function ProfilePage() {
     bgOpacity.value = withRepeat(withTiming(0.5, { duration: 10000 }), -1, true);
     bgScale2.value = withRepeat(withTiming(1, { duration: 10000 }), -1, true);
     bgOpacity2.value = withRepeat(withTiming(0.4, { duration: 10000 }), -1, true);
-  }, []);
+  }, [bgOpacity, bgOpacity2, bgScale, bgScale2]);
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }],
-    opacity: bgOpacity.value,
+    opacity: interpolate(bgOpacity.value, [0.3, 0.5], [0.3, 0.5]),
   }));
+
   const bgBlob2Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale2.value }],
-    opacity: bgOpacity2.value,
+    opacity: interpolate(bgOpacity2.value, [0.2, 0.4], [0.2, 0.4]),
   }));
 
   const { width, height } = Dimensions.get('window');
 
-  if (loading) {
+  // ---------------- Loading state ----------------
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
@@ -246,23 +336,46 @@ export default function ProfilePage() {
     );
   }
 
-  if (!userData) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
-          <Text style={styles.errorText}>Unable to load profile.</Text>
-          <TouchableOpacity onPress={() => router.replace('/login')} style={styles.errorButton}>
-            <Text style={styles.errorButtonText}>Go to Login</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Fallback profile in case data not loaded yet
+  const displayProfile = profile || {
+    username: user?.username || 'new_user',
+    avatar: null,
+    location: 'Location not set',
+    join_date: new Date().toISOString(),
+    farm_size: 'Not set',
+    main_crops: 'Not set',
+    farming_type: 'Not set',
+    questions_count: 0,
+    answers_count: 0,
+    likes_count: 0,
+    isRetailer: userRole === 'retailer',
+  };
 
-  const joinDate = userData.created_at
-    ? new Date(userData.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
-    : 'Recently';
+  const joinDate = new Date(displayProfile.join_date).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+  });
+
+  const getRoleLabel = () => {
+    switch (userRole) {
+      case 'retailer':
+        return { label: 'Retailer', color: '#3b82f6' };
+      case 'extension_officer':
+        return { label: 'Extension Officer', color: '#f59e0b' };
+      default:
+        return { label: 'Farmer', color: '#22c55e' };
+    }
+  };
+  const roleInfo = getRoleLabel();
+
+  // ** UPDATED: avatar source with local preview **
+  const avatarSource = localAvatar
+    ? { uri: localAvatar }
+    : displayProfile.avatar
+    ? { uri: displayProfile.avatar }
+    : null;
+
+  const avatarInitial = displayProfile.username.charAt(0).toUpperCase();
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -274,75 +387,98 @@ export default function ProfilePage() {
           style={StyleSheet.absoluteFill}
         />
         <Animated.View
-          style={[styles.bgBlob, { left: -width * 0.2, top: -height * 0.2, width: width * 0.6, height: width * 0.6 }, bgBlob1Style]}
+          style={[
+            styles.bgBlob,
+            { left: -width * 0.2, top: -height * 0.2, width: width * 0.6, height: width * 0.6 },
+            bgBlob1Style,
+          ]}
         >
           <BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} />
         </Animated.View>
         <Animated.View
-          style={[styles.bgBlob, { right: -width * 0.2, bottom: -height * 0.2, width: width * 0.7, height: width * 0.7 }, bgBlob2Style]}
+          style={[
+            styles.bgBlob,
+            { right: -width * 0.2, bottom: -height * 0.2, width: width * 0.7, height: width * 0.7 },
+            bgBlob2Style,
+          ]}
         >
           <BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} />
         </Animated.View>
 
-        {/* Header with back button */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#11181C" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profile</Text>
-          <View style={{ width: 40 }} />
-        </View>
-
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <MobileHeader />
+
+          {/* Profile header */}
           <Animated.View entering={SlideInDown.duration(500)} style={styles.section}>
             <GlassCard style={styles.profileCard}>
               <View style={styles.profileRow}>
-                <View style={styles.avatarContainer}>
-                  <LinearGradient colors={['#22c55e', '#16a34a']} style={styles.avatarGradient}>
-                    <Text style={styles.avatarText}>
-                      {userData.username?.[0]?.toUpperCase() || 'F'}
-                    </Text>
-                  </LinearGradient>
-                </View>
-                <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>{userData.username}</Text>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="mail-outline" size={12} color="#9ca3af" />
-                    <Text style={styles.infoText}>{userData.email}</Text>
-                  </View>
-                  {userData.phone_number && (
-                    <View style={styles.infoRow}>
-                      <Ionicons name="call-outline" size={12} color="#9ca3af" />
-                      <Text style={styles.infoText}>{userData.phone_number}</Text>
+                <TouchableOpacity onPress={pickAvatar} activeOpacity={0.7}>
+                  <View style={styles.avatarContainer}>
+                    {avatarSource ? (
+                      <Image source={avatarSource} style={styles.avatarImage} />
+                    ) : (
+                      <LinearGradient
+                        colors={['#22c55e', '#16a34a']}
+                        style={styles.avatarGradient}
+                      >
+                        <Text style={styles.avatarText}>{avatarInitial}</Text>
+                      </LinearGradient>
+                    )}
+                    <View style={styles.editAvatar}>
+                      {uploadingAvatar ? (
+                        <ActivityIndicator size="small" color="#22c55e" />
+                      ) : (
+                        <Ionicons name="camera" size={14} color="#22c55e" />
+                      )}
                     </View>
-                  )}
+                  </View>
+                </TouchableOpacity>
+
+                {/* Name & Role */}
+                <View style={styles.profileInfo}>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.profileName}>{displayProfile.username}</Text>
+                    <View style={[styles.roleBadge, { backgroundColor: roleInfo.color + '20' }]}>
+                      <Text style={[styles.roleBadgeText, { color: roleInfo.color }]}>
+                        {roleInfo.label}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Ionicons name="location-outline" size={12} color="#9ca3af" />
+                    <Text style={styles.infoText}>{displayProfile.location}</Text>
+                  </View>
                   <View style={styles.infoRow}>
                     <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
                     <Text style={styles.infoText}>Joined {joinDate}</Text>
                   </View>
+                  <TouchableOpacity onPress={startEditingUsername} style={styles.editUsernameBtn}>
+                    <Text style={styles.editUsernameText}>Edit username</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
+              {/* Stats */}
               <View style={styles.statsContainer}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{stats.questions_count}</Text>
+                  <Text style={styles.statNumber}>{displayProfile.questions_count}</Text>
                   <Text style={styles.statLabel}>Questions</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{stats.answers_count}</Text>
+                  <Text style={styles.statNumber}>{displayProfile.answers_count}</Text>
                   <Text style={styles.statLabel}>Answers</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{stats.likes_count}</Text>
-                  <Text style={styles.statLabel}>Likes Received</Text>
+                  <Text style={styles.statNumber}>{displayProfile.likes_count}</Text>
+                  <Text style={styles.statLabel}>Likes</Text>
                 </View>
               </View>
             </GlassCard>
           </Animated.View>
 
-          {/* Achievements (optional) */}
+          {/* Achievements */}
           <Animated.View entering={FadeIn.delay(100)} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="trophy-outline" size={18} color="#22c55e" />
@@ -385,28 +521,49 @@ export default function ProfilePage() {
             </GlassCard>
           </Animated.View>
 
-          {/* Farm info (placeholder) */}
+          {/* Farm / Business info */}
           <Animated.View entering={FadeIn.delay(150)} style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="leaf-outline" size={18} color="#22c55e" />
-              <Text style={styles.sectionTitle}>My Farm</Text>
+              <Ionicons
+                name={displayProfile.isRetailer ? 'storefront-outline' : 'leaf-outline'}
+                size={18}
+                color="#22c55e"
+              />
+              <Text style={styles.sectionTitle}>
+                {displayProfile.isRetailer ? 'My Business' : 'My Farm'}
+              </Text>
             </View>
             <GlassCard style={styles.farmCard}>
-              <View style={styles.farmRow}>
-                <Text style={styles.farmLabel}>Role</Text>
-                <Text style={styles.farmValue}>{userData.role || 'Farmer'}</Text>
-              </View>
-              <View style={styles.farmRow}>
-                <Text style={styles.farmLabel}>Farm Size</Text>
-                <Text style={styles.farmValue}>Not specified</Text>
-              </View>
-              <View style={styles.farmRow}>
-                <Text style={styles.farmLabel}>Main Crops</Text>
-                <Text style={styles.farmValue}>Not specified</Text>
-              </View>
+              {displayProfile.isRetailer ? (
+                <View style={styles.farmRow}>
+                  <Text style={styles.farmLabel}>Business Type</Text>
+                  <Text style={styles.farmValue}>{displayProfile.farming_type}</Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.farmRow}>
+                    <Text style={styles.farmLabel}>Farm Size</Text>
+                    <Text style={styles.farmValue}>{displayProfile.farm_size}</Text>
+                  </View>
+                  <View style={styles.farmRow}>
+                    <Text style={styles.farmLabel}>Main Crops</Text>
+                    <Text style={styles.farmValue}>{displayProfile.main_crops}</Text>
+                  </View>
+                  <View style={styles.farmRow}>
+                    <Text style={styles.farmLabel}>Farming Type</Text>
+                    <Text style={styles.farmValue}>{displayProfile.farming_type}</Text>
+                  </View>
+                </>
+              )}
+              <TouchableOpacity style={styles.editFarmButton} activeOpacity={0.8}>
+                <Text style={styles.editFarmText}>
+                  Edit {displayProfile.isRetailer ? 'Business' : 'Farm'} Details
+                </Text>
+              </TouchableOpacity>
             </GlassCard>
           </Animated.View>
 
+          {/* Menu items */}
           <Animated.View entering={FadeIn.delay(200)} style={styles.section}>
             <GlassCard style={styles.menuCard}>
               {menuItems.map((item, idx) => (
@@ -417,8 +574,8 @@ export default function ProfilePage() {
                   onPress={() => {
                     if (item.label === 'Log Out') {
                       handleLogout();
-                    } else if (item.route) {
-                      router.push(item.route as any);
+                    } else {
+                      console.log(item.label);
                     }
                   }}
                 >
@@ -450,45 +607,82 @@ export default function ProfilePage() {
 
         <BottomNav />
       </View>
+
+      {/* Edit Username Modal */}
+      <Modal visible={editingUsername} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.editModal}>
+            <Text style={styles.editModalTitle}>Edit Username</Text>
+            <TextInput
+              style={styles.editInput}
+              value={newUsername}
+              onChangeText={(text) => {
+                setNewUsername(text);
+                setUsernameError(null);
+              }}
+              placeholder="Enter new username"
+              placeholderTextColor="#9ca3af"
+              autoFocus
+              maxLength={30}
+            />
+            {usernameError && <Text style={styles.errorText}>{usernameError}</Text>}
+            <View style={styles.editActions}>
+              <TouchableOpacity onPress={cancelEditingUsername} style={styles.editCancelBtn}>
+                <Text style={styles.editCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={saveUsername}
+                style={[styles.editSaveBtn, !newUsername.trim() && { opacity: 0.5 }]}
+                disabled={!newUsername.trim()}
+              >
+                <Text style={styles.editSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-// Styles (unchanged)
+// ---------- Styles (unchanged) ----------
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
   container: { flex: 1, position: 'relative' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-    backgroundColor: 'transparent',
-  },
-  backButton: { padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: '600', color: '#11181C' },
-  scrollContent: { flexGrow: 1, paddingBottom: 80, paddingTop: 0 },
+  scrollContent: { flexGrow: 1, paddingBottom: 80, paddingTop: 120 },
   bgBlob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)', overflow: 'hidden' },
   section: { paddingHorizontal: 16, marginBottom: 16 },
   profileCard: { padding: 16 },
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   avatarContainer: { position: 'relative' },
+  avatarImage: { width: 80, height: 80, borderRadius: 40 },
   avatarGradient: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 32, fontWeight: 'bold', color: 'white' },
+  editAvatar: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'white',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      web: { boxShadow: '0px 2px 2px rgba(0,0,0,0.1)' },
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
+    }),
+  },
   profileInfo: { flex: 1 },
-  profileName: { fontSize: 18, fontWeight: 'bold', color: '#11181C', marginBottom: 4 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
+  profileName: { fontSize: 18, fontWeight: 'bold', color: '#11181C' },
+  roleBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  roleBadgeText: { fontSize: 11, fontWeight: '600' },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   infoText: { fontSize: 12, color: '#9ca3af' },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
-  },
+  editUsernameBtn: { marginTop: 6 },
+  editUsernameText: { fontSize: 12, color: '#22c55e', fontWeight: '500' },
+  statsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   statItem: { alignItems: 'center' },
   statNumber: { fontSize: 20, fontWeight: 'bold', color: '#11181C' },
   statLabel: { fontSize: 10, color: '#9ca3af', marginTop: 2 },
@@ -508,16 +702,10 @@ const styles = StyleSheet.create({
   farmRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   farmLabel: { fontSize: 14, color: '#687076' },
   farmValue: { fontSize: 14, fontWeight: '500', color: '#11181C' },
+  editFarmButton: { marginTop: 8, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(34,197,94,0.1)', alignItems: 'center' },
+  editFarmText: { fontSize: 14, fontWeight: '500', color: '#22c55e' },
   menuCard: { overflow: 'hidden' },
-  menuItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
-  },
+  menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
   menuItemLast: { borderBottomWidth: 0 },
   menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   menuLabel: { fontSize: 14, color: '#11181C' },
@@ -527,8 +715,14 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 10, fontWeight: '600', color: 'white' },
   version: { textAlign: 'center', fontSize: 10, color: '#9ca3af', marginVertical: 24 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  errorText: { marginTop: 12, fontSize: 16, color: '#ef4444', textAlign: 'center' },
-  errorButton: { marginTop: 24, backgroundColor: '#22c55e', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 },
-  errorButtonText: { color: 'white', fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  editModal: { backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 },
+  editModalTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 16, textAlign: 'center' },
+  editInput: { backgroundColor: '#f9fafb', borderRadius: 12, padding: 12, fontSize: 16, color: '#111827', marginBottom: 8 },
+  errorText: { color: '#ef4444', fontSize: 12, marginBottom: 8 },
+  editActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
+  editCancelBtn: { paddingVertical: 8, paddingHorizontal: 16 },
+  editCancelText: { fontSize: 14, color: '#6b7280' },
+  editSaveBtn: { backgroundColor: '#22c55e', paddingVertical: 8, paddingHorizontal: 24, borderRadius: 20 },
+  editSaveText: { color: '#fff', fontWeight: '600' },
 });

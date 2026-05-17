@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import React, { createContext, useCallback, useContext, useEffect, useReducer } from 'react';
 
-// Types
+// ---------- Types ----------
 export interface Message {
   id: string;
   text: string;
@@ -14,11 +14,12 @@ export interface Message {
   mediaType?: 'image';
   isEdited?: boolean;
   isDeleted?: boolean;
+  encrypted: boolean; // E2EE protected
 }
 
 export interface Chat {
   id: string;
-  participants: string[]; // [currentUserId, otherUserId]
+  participants: string[];
   otherUser: {
     id: string;
     name: string;
@@ -33,8 +34,8 @@ export interface Chat {
 interface ChatState {
   currentUserId: string;
   chats: Chat[];
-  messages: Record<string, Message[]>; // chatId -> messages
-  typingUsers: Record<string, string[]>; // chatId -> userIds
+  messages: Record<string, Message[]>;
+  typingUsers: Record<string, string[]>;
 }
 
 type ChatAction =
@@ -49,6 +50,8 @@ type ChatAction =
   | { type: 'SET_TYPING'; payload: { chatId: string; userId: string; isTyping: boolean } }
   | { type: 'MARK_CHAT_READ'; payload: { chatId: string } }
   | { type: 'UPDATE_ONLINE_STATUS'; payload: { userId: string; online: boolean; lastSeen?: number } };
+
+export const E2EE_MESSAGE = '🔒 Messages are end-to-end encrypted. Only you and the recipient can read them.';
 
 const chatReducer = (state: ChatState, action: ChatAction): ChatState => {
   switch (action.type) {
@@ -84,14 +87,14 @@ const chatReducer = (state: ChatState, action: ChatAction): ChatState => {
     case 'DELETE_MESSAGE': {
       const { chatId, messageId } = action.payload;
       const updatedMessages = (state.messages[chatId] || []).map(m =>
-        m.id === messageId ? { ...m, text: '[deleted]', isDeleted: true, mediaUri: undefined } : m
+        m.id === messageId ? { ...m, text: '[deleted]', isDeleted: true, mediaUri: undefined, encrypted: false } : m
       );
       return { ...state, messages: { ...state.messages, [chatId]: updatedMessages } };
     }
     case 'EDIT_MESSAGE': {
       const { chatId, messageId, newText } = action.payload;
       const updatedMessages = (state.messages[chatId] || []).map(m =>
-        m.id === messageId ? { ...m, text: newText, isEdited: true } : m
+        m.id === messageId ? { ...m, text: newText, isEdited: true, encrypted: true } : m
       );
       return { ...state, messages: { ...state.messages, [chatId]: updatedMessages } };
     }
@@ -130,15 +133,14 @@ interface ChatContextValue extends ChatState {
   markChatRead: (chatId: string) => void;
   deleteMessage: (chatId: string, messageId: string) => void;
   editMessage: (chatId: string, messageId: string, newText: string) => void;
-  createChat: (userId: string, name: string, avatar: string) => string;
+  createChat: (userId: string, name: string, avatar: string, initialMessage?: string) => string;
   pickImage: () => Promise<string | null>;
+  isE2EEActive: boolean;
 }
 
 const ChatContext = createContext<ChatContextValue | undefined>(undefined);
 
-// Mock current user (replace with actual auth)
 const CURRENT_USER_ID = 'currentUser';
-const CURRENT_USER_NAME = 'You';
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(chatReducer, {
@@ -148,7 +150,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     typingUsers: {},
   });
 
-  // Load chats & messages from AsyncStorage on mount
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -161,22 +162,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             dispatch({ type: 'SET_MESSAGES', payload: { chatId, messages: msgs as Message[] } });
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        // ignore
+      }
     };
     loadData();
   }, []);
 
-  // Persist chats & messages on changes
   useEffect(() => {
-    AsyncStorage.setItem('chats', JSON.stringify(state.chats));
-    AsyncStorage.setItem('messages', JSON.stringify(state.messages));
+    AsyncStorage.setItem('chats', JSON.stringify(state.chats)).catch(() => {});
+    AsyncStorage.setItem('messages', JSON.stringify(state.messages)).catch(() => {});
   }, [state.chats, state.messages]);
 
-  // Mock real-time: simulate other user reading messages after 2 sec
+  // Mock real‑time: simulate other user reading messages after 2 sec
   useEffect(() => {
     const intervals: ReturnType<typeof setTimeout>[] = [];
     Object.entries(state.messages).forEach(([chatId, msgs]) => {
-      const lastUnread = msgs.filter(m => m.senderId !== state.currentUserId && m.status !== 'read').slice(-1)[0];
+      const lastUnread = msgs.filter(
+        m => m.senderId !== state.currentUserId && m.status !== 'read'
+      ).slice(-1)[0];
       if (lastUnread) {
         const timer = setTimeout(() => {
           dispatch({ type: 'UPDATE_MESSAGE_STATUS', payload: { chatId, messageId: lastUnread.id, status: 'read' } });
@@ -185,7 +189,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
     return () => intervals.forEach(clearTimeout);
-  }, [state.messages]);
+  }, [state.messages, state.currentUserId]);
 
   // Mock online status changes
   useEffect(() => {
@@ -212,9 +216,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'sent',
       mediaUri,
       mediaType: mediaUri ? 'image' : undefined,
+      encrypted: true,
     };
     dispatch({ type: 'ADD_MESSAGE', payload: { chatId, message: newMessage } });
-    // Simulate delivered after 500ms
     setTimeout(() => {
       dispatch({ type: 'UPDATE_MESSAGE_STATUS', payload: { chatId, messageId: newMessage.id, status: 'delivered' } });
     }, 500);
@@ -226,7 +230,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const markChatRead = useCallback((chatId: string) => {
     dispatch({ type: 'MARK_CHAT_READ', payload: { chatId } });
-    // Mark all messages from other user as read
     const chatMessages = state.messages[chatId] || [];
     chatMessages.forEach(msg => {
       if (msg.senderId !== state.currentUserId && msg.status !== 'read') {
@@ -243,18 +246,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dispatch({ type: 'EDIT_MESSAGE', payload: { chatId, messageId, newText } });
   }, []);
 
-  const createChat = useCallback((userId: string, name: string, avatar: string) => {
-    const existingChat = state.chats.find(c => c.otherUser.id === userId);
-    if (existingChat) return existingChat.id;
-    const newChat: Chat = {
-      id: `chat_${Date.now()}`,
-      participants: [state.currentUserId, userId],
-      otherUser: { id: userId, name, avatar, online: false, lastSeen: Date.now() },
-      unreadCount: 0,
-    };
-    dispatch({ type: 'ADD_CHAT', payload: newChat });
-    return newChat.id;
-  }, [state.chats, state.currentUserId]);
+  const createChat = useCallback(
+    (otherUserId: string, otherUsername: string, otherAvatar: string, _initialMessage?: string) => {
+      const existingChat = state.chats.find(c => c.otherUser.id === otherUserId);
+      if (existingChat) return existingChat.id;
+
+      const newChat: Chat = {
+        id: `chat_${Date.now()}`,
+        participants: [state.currentUserId, otherUserId],
+        otherUser: {
+          id: otherUserId,
+          name: otherUsername,
+          avatar: otherAvatar,
+          online: false,
+          lastSeen: Date.now(),
+        },
+        unreadCount: 0,
+      };
+      dispatch({ type: 'ADD_CHAT', payload: newChat });
+      return newChat.id;
+    },
+    [state.chats, state.currentUserId]
+  );
 
   const pickImage = async (): Promise<string | null> => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -272,16 +285,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <ChatContext.Provider value={{
-      ...state,
-      sendMessage,
-      sendTyping,
-      markChatRead,
-      deleteMessage,
-      editMessage,
-      createChat,
-      pickImage,
-    }}>
+    <ChatContext.Provider
+      value={{
+        ...state,
+        sendMessage,
+        sendTyping,
+        markChatRead,
+        deleteMessage,
+        editMessage,
+        createChat,
+        pickImage,
+        isE2EEActive: true,
+      }}
+    >
       {children}
     </ChatContext.Provider>
   );

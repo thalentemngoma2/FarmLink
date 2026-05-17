@@ -1,8 +1,10 @@
+import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, usePathname } from 'expo-router';
 import React, { useEffect } from 'react';
 import {
-  Platform, StyleSheet,
+  Platform,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View
@@ -16,161 +18,224 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Navigation items configuration
-const navItems = [
-  { icon: 'home-outline', label: 'Home', href: '/' },
-  { icon: 'people-outline', label: 'Community', href: '/community' },
-  { icon: 'add-circle', label: 'Ask', href: '/ask', isPrimary: true },
-  { icon: 'book-outline', label: 'Learn', href: '/learn' },
-  { icon: 'person-outline', label: 'Profile', href: '/profile' },
-];
+export interface NavItemType {
+  icon: string;
+  label: string;
+  href: string;
+}
 
 // Helper to check if a path matches (for nested routes, you might adjust)
 const isActiveRoute = (currentPath: string, itemPath: string) => {
-  // Simple equality – adjust for nested routes if needed
-  return currentPath === itemPath;
+  if (currentPath === itemPath) return true;
+  if (itemPath !== '/' && currentPath.startsWith(itemPath)) return true;
+  if (itemPath === '/tenders' && currentPath.startsWith('/tender')) return true;
+  return false;
+};
+
+// Individual tab item component to avoid hooks inside .map()
+interface NavItemProps {
+  item: NavItemType;
+  idx: number;
+  pathname: string;
+  itemOpacity: ReturnType<typeof useSharedValue<number>>;
+  itemTranslateY: ReturnType<typeof useSharedValue<number>>;
+  itemScale: ReturnType<typeof useSharedValue<number>>;
+  indicatorScale: ReturnType<typeof useSharedValue<number>>;
+  indicatorOpacity: ReturnType<typeof useSharedValue<number>>;
+}
+
+const NavItem: React.FC<NavItemProps> = ({
+  item,
+  idx,
+  pathname,
+  itemOpacity,
+  itemTranslateY,
+  itemScale,
+  indicatorScale,
+  indicatorOpacity,
+}) => {
+  const isActive = isActiveRoute(pathname, item.href);
+
+  const itemAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: itemOpacity.value,
+    transform: [{ translateY: itemTranslateY.value }, { scale: itemScale.value }],
+  }), [itemOpacity, itemTranslateY, itemScale]);
+
+  const indicatorAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: indicatorOpacity.value,
+    transform: [
+      { rotate: '45deg' },
+      { scale: indicatorScale.value * 1.2 }
+    ],
+  }), [indicatorOpacity, indicatorScale]);
+
+  const handlePressIn = () => {
+    itemScale.value = withSpring(0.95);
+  };
+
+  const handlePressOut = () => {
+    itemScale.value = withSpring(1);
+  };
+
+  const handlePress = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      (document.activeElement as HTMLElement)?.blur?.();
+    }
+  };
+
+  return (
+    <Link key={item.label} href={item.href as any} asChild>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        onPress={handlePress}
+        style={StyleSheet.flatten([
+          styles.tabButton,
+          isActive && styles.activeTab,
+        ])}
+      >
+        <Animated.View style={[styles.tabInner, itemAnimatedStyle]}>
+          <Ionicons
+            name={item.icon as any}
+            size={20}
+            color={isActive ? '#22c55e' : '#9ca3af'}
+          />
+          <Text
+            style={[
+              styles.label,
+              isActive && styles.activeLabel,
+              styles.tabInnerText,
+            ]}
+          >
+            {item.label}
+          </Text>
+          {isActive ? (
+            <Animated.View
+              style={[
+                styles.activeIndicator,
+                indicatorAnimatedStyle,
+              ]}
+            />
+          ) : null}
+        </Animated.View>
+      </TouchableOpacity>
+    </Link>
+  );
 };
 
 export const BottomNav: React.FC = () => {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
 
-  // Animation values
+  const navItems = React.useMemo(() => {
+    if (user?.role === 'retailer') {
+      return [
+        { icon: 'home-outline', label: 'Home', href: '/community' },
+        { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
+        { icon: 'people-outline', label: 'Suppliers', href: '/suppliers' },
+        { icon: 'person-outline', label: 'Profile', href: '/profile' },
+      ];
+    }
+
+    return [
+      { icon: 'home-outline', label: 'Home', href: '/community' },
+      { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
+      { icon: 'help-buoy-outline', label: 'Support', href: '/support' },
+      { icon: 'person-outline', label: 'Profile', href: '/profile' },
+    ];
+  }, [user?.role]);
+
+  // Nav container animations
   const navTranslateY = useSharedValue(100);
   const navOpacity = useSharedValue(0);
 
-  // For each item, track opacity and y translation
-  const itemOpacities = navItems.map(() => useSharedValue(0));
-  const itemTranslatesY = navItems.map(() => useSharedValue(20));
+  // Tab item 0
+  const itemOpacity0 = useSharedValue(0);
+  const itemTranslateY0 = useSharedValue(20);
+  const itemScale0 = useSharedValue(1);
+  const indicatorScale0 = useSharedValue(0);
+  const indicatorOpacity0 = useSharedValue(0);
 
-  // For active indicator (non-primary items)
-  const activeIndicatorScales = navItems.map(() => useSharedValue(0));
-  const activeIndicatorOpacities = navItems.map(() => useSharedValue(0));
+  // Tab item 1
+  const itemOpacity1 = useSharedValue(0);
+  const itemTranslateY1 = useSharedValue(20);
+  const itemScale1 = useSharedValue(1);
+  const indicatorScale1 = useSharedValue(0);
+  const indicatorOpacity1 = useSharedValue(0);
 
-  // For press scaling (shared across items)
-  const itemScales = navItems.map(() => useSharedValue(1));
+  // Tab item 2 (primary, no indicator)
+  const itemOpacity2 = useSharedValue(0);
+  const itemTranslateY2 = useSharedValue(20);
+  const itemScale2 = useSharedValue(1);
+  const indicatorScale2 = useSharedValue(0);
+  const indicatorOpacity2 = useSharedValue(0);
 
-  useEffect(() => {
-    // Entry animation for nav container – removed bounce, now a smooth slide-up
-    navTranslateY.value = withTiming(0, { duration: 300 });
-    navOpacity.value = withTiming(1, { duration: 300 });
+  // Tab item 3
+  const itemOpacity3 = useSharedValue(0);
+  const itemTranslateY3 = useSharedValue(20);
+  const itemScale3 = useSharedValue(1);
+  const indicatorScale3 = useSharedValue(0);
+  const indicatorOpacity3 = useSharedValue(0);
 
-    // Staggered entry for each item
-    navItems.forEach((_, idx) => {
-      const delay = 300 + idx * 50;
-      itemOpacities[idx].value = withDelay(delay, withTiming(1, { duration: 300 }));
-      itemTranslatesY[idx].value = withDelay(delay, withTiming(0, { duration: 300 }));
-    });
-  }, []);
+  const itemOpacities = [itemOpacity0, itemOpacity1, itemOpacity2, itemOpacity3];
+  const itemTranslatesY = [itemTranslateY0, itemTranslateY1, itemTranslateY2, itemTranslateY3];
+  const itemScales = [itemScale0, itemScale1, itemScale2, itemScale3];
+  const indicatorScales = [indicatorScale0, indicatorScale1, indicatorScale2, indicatorScale3];
+  const indicatorOpacities = [indicatorOpacity0, indicatorOpacity1, indicatorOpacity2, indicatorOpacity3];
 
-  // Update active indicator animations whenever pathname changes
-  useEffect(() => {
-    navItems.forEach((item, idx) => {
-      if (item.isPrimary) return; // no indicator for primary button
+useEffect(() => {
+     navTranslateY.value = withTiming(0, { duration: 300 });
+     navOpacity.value = withTiming(1, { duration: 300 });
 
-      const isActive = isActiveRoute(pathname, item.href);
-      if (isActive) {
-        activeIndicatorScales[idx].value = withSpring(1);
-        activeIndicatorOpacities[idx].value = withTiming(1, { duration: 200 });
-      } else {
-        activeIndicatorScales[idx].value = withSpring(0);
-        activeIndicatorOpacities[idx].value = withTiming(0, { duration: 200 });
-      }
-    });
-  }, [pathname]);
+     navItems.forEach((_, idx) => {
+       const delay = 300 + idx * 50;
+       itemOpacities[idx].value = withDelay(delay, withTiming(1, { duration: 300 }));
+       itemTranslatesY[idx].value = withDelay(delay, withTiming(0, { duration: 300 }));
+     });
+   }, [navItems, itemOpacities, itemTranslatesY, navTranslateY, navOpacity]);
+
+useEffect(() => {
+     navItems.forEach((item, idx) => {
+       const isActive = isActiveRoute(pathname, item.href);
+       if (isActive) {
+         indicatorScales[idx].value = withSpring(1);
+         indicatorOpacities[idx].value = withTiming(1, { duration: 200 });
+       } else {
+         indicatorScales[idx].value = withSpring(0);
+         indicatorOpacities[idx].value = withTiming(0, { duration: 200 });
+       }
+     });
+   }, [navItems, indicatorOpacities, indicatorScales, pathname]);
 
   const navAnimatedStyle = useAnimatedStyle(() => ({
     opacity: navOpacity.value,
     transform: [{ translateY: navTranslateY.value }],
   }));
 
-  const handlePressIn = (idx: number) => {
-    itemScales[idx].value = withSpring(0.95);
-  };
-
-  const handlePressOut = (idx: number) => {
-    itemScales[idx].value = withSpring(1);
-  };
-
   return (
     <Animated.View
-      style={StyleSheet.flatten([
+      style={[
         styles.container,
         navAnimatedStyle,
         { paddingBottom: insets.bottom || 8 },
-      ])}
+      ]}
     >
       <View style={styles.navBar}>
-        {navItems.map((item, idx) => {
-          const isActive = !item.isPrimary && isActiveRoute(pathname, item.href);
-            const itemAnimatedStyle = useAnimatedStyle(() => {
-              const translateY = itemTranslatesY[idx].value;
-              const scale = itemScales[idx].value;
-              if (Platform.OS === 'web') {
-                return {
-                  opacity: itemOpacities[idx].value,
-                  transform: `translateY(${translateY}px) scale(${scale})`,
-                  };
-              }
-              return {
-                opacity: itemOpacities[idx].value,
-                transform: [{ translateY }, { scale }],
-              };
-            });
-
-          const indicatorAnimatedStyle = useAnimatedStyle(() => ({
-            opacity: activeIndicatorOpacities[idx].value,
-            transform: [{ scale: activeIndicatorScales[idx].value }],
-          }));
-
-          return (
-            <Link key={item.label} href={item.href as any} asChild>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPressIn={() => handlePressIn(idx)}
-                onPressOut={() => handlePressOut(idx)}
-                style={StyleSheet.flatten([
-                  styles.tabButton,
-                  item.isPrimary && styles.primaryTab,
-                  isActive && !item.isPrimary && styles.activeTab,
-                ])}
-              >
-                <Animated.View style={[styles.tabInner, itemAnimatedStyle]}>
-                  <Ionicons
-                    name={item.icon as any}
-                    size={item.isPrimary ? 26 : 20}
-                    color={
-                      item.isPrimary
-                        ? '#fff'
-                        : isActive
-                        ? '#22c55e'
-                        : '#9ca3af'
-                    }
-                  />
-                  <Text
-                    style={StyleSheet.flatten([
-                      styles.label,
-                      item.isPrimary && styles.primaryLabel,
-                      isActive && !item.isPrimary && styles.activeLabel,
-                    ])}
-                  >
-                    {item.label}
-                  </Text>
-                  {!item.isPrimary && (
-                    <Animated.View
-                      style={StyleSheet.flatten([
-                        styles.activeIndicator,
-                        indicatorAnimatedStyle,
-                        isActive && styles.activeIndicatorVisible,
-                      ])}
-                      
-                    />
-                  )}
-                </Animated.View>
-              </TouchableOpacity>
-            </Link>
-          );
-        })}
+        {navItems.map((item, idx) => (
+          <NavItem
+            key={item.label}
+            item={item}
+            idx={idx}
+            pathname={pathname}
+            itemOpacity={itemOpacities[idx]}
+            itemTranslateY={itemTranslatesY[idx]}
+            itemScale={itemScales[idx]}
+            indicatorScale={indicatorScales[idx]}
+            indicatorOpacity={indicatorOpacities[idx]}
+          />
+        ))}
       </View>
     </Animated.View>
   );
@@ -197,9 +262,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     marginHorizontal: 16,
-    boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
     elevation: 8,
-    backdropFilter: 'blur(20px)', // note: not directly supported, but adds style; actual blur can be achieved with expo-blur
   },
   tabButton: {
     flex: 1,
@@ -209,32 +272,18 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
   },
-  primaryTab: {
-    backgroundColor: '#22c55e',
-    borderRadius: 32,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
-    elevation: 3,
-  },
-  activeTab: {
-    // no extra background, only text/icon color change
-  },
+  activeTab: {},
   tabInner: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+  },
+  tabInnerText: {
+    marginTop: 2,
   },
   label: {
     fontSize: 10,
     fontWeight: '500',
     color: '#9ca3af',
-    marginTop: 2,
-  },
-  primaryLabel: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
   },
   activeLabel: {
     color: '#22c55e',
@@ -248,9 +297,4 @@ const styles = StyleSheet.create({
     backgroundColor: '#22c55e',
     alignSelf: 'center',
   },
-  activeIndicatorVisible: {
-    opacity: 1,
-    transform: 'rotate(45deg) scale(1.2)',
-  },
-
 });
