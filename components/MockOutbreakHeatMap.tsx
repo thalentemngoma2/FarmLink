@@ -3,12 +3,16 @@ import React, { useState } from 'react';
 import {
     Dimensions,
     Modal,
+<<<<<<< HEAD
     Platform,
+=======
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
     StyleSheet,
     Text,
     TouchableOpacity,
     View
 } from 'react-native';
+<<<<<<< HEAD
 
 let MapView: any = null;
 let Heatmap: any = null;
@@ -22,6 +26,9 @@ if (Platform.OS !== 'web') {
   Marker = RNMaps.Marker;
   PROVIDER_GOOGLE = RNMaps.PROVIDER_GOOGLE;
 }
+=======
+import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
 // ---------- Mock Data ----------
 // Types
@@ -243,6 +250,7 @@ export default function MockOutbreakHeatMap({ initialFilter = 'all' }: MockOutbr
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+<<<<<<< HEAD
   if (Platform.OS === 'web' || !MapView) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f3f4f6' }]}>
@@ -252,6 +260,8 @@ export default function MockOutbreakHeatMap({ initialFilter = 'all' }: MockOutbr
     );
   }
 
+=======
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   return (
     <View style={styles.container}>
       {/* Filter buttons */}
@@ -437,6 +447,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: Dimensions.get('window').width,
   },
+<<<<<<< HEAD
    legendContainer: {
      position: 'absolute',
      bottom: 20,
@@ -447,6 +458,22 @@ const styles = StyleSheet.create({
      paddingHorizontal: 12,
      ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(0,0,0,0.1)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 } }),
    },
+=======
+  legendContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 16,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -468,6 +495,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+<<<<<<< HEAD
    modalCard: {
      width: '80%',
      backgroundColor: '#fff',
@@ -476,6 +504,20 @@ const styles = StyleSheet.create({
      alignItems: 'center',
      ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(0,0,0,0.25)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 } }),
    },
+=======
+  modalCard: {
+    width: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   closeButton: {
     position: 'absolute',
     top: 12,
@@ -537,6 +579,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#22c55e',
   },
+<<<<<<< HEAD
    demoBanner: {
      position: 'absolute',
      bottom: 20,
@@ -550,6 +593,20 @@ const styles = StyleSheet.create({
      gap: 6,
      ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(0,0,0,0.1)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 } }),
    },
+=======
+  demoBanner: {
+    position: 'absolute',
+    bottom: 20,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   demoBannerText: {
     fontSize: 10,
     color: '#fff',

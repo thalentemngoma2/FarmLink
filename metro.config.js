@@ -9,4 +9,16 @@ const config = getDefaultConfig(__dirname);
 
 config.resolver.blockList = [/server\/.*/];
 
+<<<<<<< HEAD
 export default config;
+=======
+// Exclude react-native-maps from web bundling
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (platform === 'web' && moduleName === 'react-native-maps') {
+    return { filePath: require.resolve('./web/MapPlaceholder.js'), type: 'sourceFile' };
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
+module.exports = config;
+>>>>>>> remotes/gozilethu/farmlink-Mbutho

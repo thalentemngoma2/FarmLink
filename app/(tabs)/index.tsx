@@ -84,12 +84,16 @@ const GRADIO_URL = Platform.select({
 const TREFLE_PROXY_URL =
   'https://dzqiazdlhrngboqmcyvm.supabase.co/functions/v1/trefle-proxy';
 
+<<<<<<< HEAD
 import CommunityPage from './community';
 export default function IndexRoute() {
   return <CommunityPage />;
 }
 
 export function FarmLinkPage() {
+=======
+export default function FarmLinkPage() {
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   const { user } = useAuth();
   const [isPlantModalVisible, setIsPlantModalVisible] = useState(false);
   const [plantName, setPlantName] = useState('');
@@ -111,6 +115,19 @@ export function FarmLinkPage() {
     description: string;
   } | null>(null);
   const searchTimeout = useRef<any>(null);
+<<<<<<< HEAD
+=======
+
+  // Request permissions
+  useEffect(() => {
+    (async () => {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') Alert.alert('Permission needed', 'Camera access is required.');
+      const { status: mediaStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (mediaStatus !== 'granted') Alert.alert('Permission needed', 'Gallery access is required.');
+    })();
+  }, []);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
   // Fetch scans
   useEffect(() => {
@@ -141,8 +158,12 @@ export function FarmLinkPage() {
           synced: true,
         }))
       );
+<<<<<<< HEAD
     } catch (error: any) {
       if (error.name === 'AbortError' || error.message?.includes('AbortError')) return;
+=======
+    } catch (error) {
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
       console.error('Failed to load scans', error);
       Alert.alert('Error', 'Could not load your scan history');
     }
@@ -197,8 +218,12 @@ export function FarmLinkPage() {
           timestamp: formatRelativeTime(scan.created_at),
         }))
       );
+<<<<<<< HEAD
     } catch (error: any) {
       if (error.name === 'AbortError' || error.message?.includes('AbortError')) return;
+=======
+    } catch (error) {
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
       console.error('Failed to load community scans', error);
       Alert.alert('Error', 'Could not load community scans');
     } finally {
@@ -224,6 +249,7 @@ export function FarmLinkPage() {
     }
     setIsSearchingTrefle(true);
     try {
+<<<<<<< HEAD
       // Include the user's session token to authorize the Supabase Edge Function
       const { data: { session } } = await supabase.auth.getSession();
       const headers: Record<string, string> = {};
@@ -233,6 +259,9 @@ export function FarmLinkPage() {
 
       const response = await fetch(`${TREFLE_PROXY_URL}?type=search&q=${encodeURIComponent(query)}`, { headers });
       if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+=======
+      const response = await fetch(`${TREFLE_PROXY_URL}?type=search&q=${encodeURIComponent(query)}`);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
       const json = await response.json();
       if (Array.isArray(json.data)) {
         setTrefleSuggestions(json.data.slice(0, 5).map(sanitiseTreflePlant));
@@ -250,6 +279,7 @@ export function FarmLinkPage() {
   const getTrefleDetail = async (slug: string) => {
     if (!slug) return;
     try {
+<<<<<<< HEAD
       const { data: { session } } = await supabase.auth.getSession();
       const headers: Record<string, string> = {};
       if (session?.access_token) {
@@ -280,6 +310,31 @@ export function FarmLinkPage() {
     searchTimeout.current = setTimeout(() => searchTrefle(text), 500);
   };
 
+=======
+      const response = await fetch(`${TREFLE_PROXY_URL}?type=detail&slug=${slug}`);
+      const json = await response.json();
+      if (json.data && typeof json.data === 'object') {
+        const plant = json.data;
+        setTrefleDetail({
+          scientific_name: typeof plant.scientific_name === 'string' ? plant.scientific_name : '',
+          family: typeof plant.family_common_name === 'string' ? plant.family_common_name : (typeof plant.family === 'string' ? plant.family : ''),
+          image: typeof plant.image_url === 'string' ? plant.image_url : '',
+          description: typeof plant.species_description === 'string' ? plant.species_description : (typeof plant.description === 'string' ? plant.description : 'No description available.'),
+        });
+      }
+    } catch (error) {
+      console.log('Trefle detail error:', error);
+    }
+  };
+
+  const handlePlantNameChange = (text: string) => {
+    setPlantName(text);
+    setTrefleDetail(null);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => searchTrefle(text), 500);
+  };
+
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   const selectTrefleSuggestion = (item: TrefleSearchResult) => {
     setPlantName(item.common_name || item.scientific_name);
     setTrefleSuggestions([]);
@@ -288,6 +343,7 @@ export function FarmLinkPage() {
 
   // ---------- AI analysis (sends file URI directly) ----------
   const analyzeWithRealAI = async (imageUri: string): Promise<PlantAnalysis> => {
+<<<<<<< HEAD
     try {
       // Use file URI directly in FormData – no Blob needed
       const formData = new FormData();
@@ -321,15 +377,43 @@ export function FarmLinkPage() {
         preventiveTips: 'Ensure leaves remain dry when watering to prevent future fungal infections.'
       };
     }
+=======
+    // Use file URI directly in FormData – no Blob needed
+    const formData = new FormData();
+    formData.append('image', {
+      uri: imageUri,
+      name: 'leaf.jpg',
+      type: 'image/jpeg',
+    } as any);
+
+    const result = await fetch(GRADIO_URL, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error(`Gradio API error ${result.status}`);
+    }
+
+    const gradioResult = await result.json();
+    return JSON.parse(gradioResult[1]) as PlantAnalysis;
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   };
 
   const uploadAndSaveScan = async (imageUri: string, plant: string, analysis: PlantAnalysis) => {
     if (!user) throw new Error('Not authenticated');
     // Upload to Supabase Storage using the URI directly
+<<<<<<< HEAD
     const extCandidate = imageUri.split('.').pop();
     const ext = (extCandidate && extCandidate.length <= 4 && !extCandidate.includes('/')) 
       ? extCandidate 
       : 'jpg';
+=======
+    const ext = imageUri.split('.').pop() || 'jpg';
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
     const path = `scans/${user.id}/${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage.from('farmlink').upload(path, imageUri, {
       contentType: 'image/jpeg',
@@ -363,6 +447,7 @@ export function FarmLinkPage() {
       return;
     }
     let result;
+<<<<<<< HEAD
     try {
       if (useCamera) {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -382,6 +467,12 @@ export function FarmLinkPage() {
     } catch (e) {
       console.warn('Image picker error:', e);
       return;
+=======
+    if (useCamera) {
+      result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+    } else {
+      result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
     }
     if (!result.canceled && result.assets?.length) {
       const uri = result.assets[0].uri;

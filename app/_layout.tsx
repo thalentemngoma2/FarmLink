@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
@@ -31,6 +32,16 @@ function RootLayoutNav() {
     </Stack>
   );
 }
+=======
+import { AuthProvider } from '@/context/AuthContext';
+import { Stack } from 'expo-router';
+import { configureReanimatedLogger, ReanimatedLogLevel } from 'react-native-reanimated';
+
+configureReanimatedLogger({
+  level: ReanimatedLogLevel.warn,
+  strict: false,
+});
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
 export default function RootLayout() {
   return (

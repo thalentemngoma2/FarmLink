@@ -1,6 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import { BlurView } from 'expo-blur';
+<<<<<<< HEAD
+=======
+import * as FileSystem from 'expo-file-system';
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -48,10 +52,15 @@ import { ChatProvider, useChat } from '@/context/ChatContext';
 import { supabase } from '@/lib/supabase';
 
 // ---------- Helpers ----------
+<<<<<<< HEAD
 function formatPostTime(isoString?: string): string {
   if (!isoString) return 'Just now';
   const date = new Date(isoString);
   if (isNaN(date.getTime()) || date.getFullYear() <= 1970) return 'Just now';
+=======
+function formatPostTime(isoString: string): string {
+  const date = new Date(isoString);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
@@ -112,7 +121,11 @@ interface Discussion {
 }
 
 const CATEGORIES = ['All', 'Crops', 'Pests', 'Irrigation', 'Soil', 'Market'];
+<<<<<<< HEAD
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+=======
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 const BOTTOM_NAV_HEIGHT = 70;
 
 const HEADER_HEIGHT = 100;
@@ -135,7 +148,12 @@ const ReplyItem: React.FC<ReplyItemProps> = ({ reply, onLike, parentCommentId, c
     <View style={styles.replyBubble}>
       <Text style={styles.replyUsername}>@{reply.username}</Text>
       <Text style={styles.replyText}>{reply.comment}</Text>
+<<<<<<< HEAD
       <View style={[styles.replyMeta, { justifyContent: 'flex-start' }]}>
+=======
+      <View style={styles.replyMeta}>
+        <Text style={styles.replyDate}>{reply.postedDate}</Text>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
         <TouchableOpacity
           style={styles.replyLikeBtn}
           onPress={() => onLike(reply.id, parentCommentId)}
@@ -180,6 +198,10 @@ const CommentItem: React.FC<CommentItemProps> = ({
           <Text style={styles.commentText}>{comment.comment}</Text>
         </View>
         <View style={styles.commentActions}>
+<<<<<<< HEAD
+=======
+          <Text style={styles.commentDate}>{comment.postedDate}</Text>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
           <TouchableOpacity onPress={() => onLike(comment.id, false)} style={styles.commentLikeBtn}>
             <Ionicons
               name={comment.likedByUser ? 'heart' : 'heart-outline'}
@@ -310,6 +332,10 @@ const CommentScreen: React.FC<CommentScreenProps> = ({
               <Text style={styles.postSummaryAvatar}>{post.avatar}</Text>
               <View>
                 <Text style={styles.postSummaryName}>{post.author}</Text>
+<<<<<<< HEAD
+=======
+                <Text style={styles.postSummaryTime}>{post.timeAgo}</Text>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
               </View>
             </View>
             <Text style={styles.postSummaryText} numberOfLines={3}>
@@ -446,6 +472,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
       if (!response.ok) throw new Error('Failed to read file for upload');
       blob = await response.blob();
     } else {
+<<<<<<< HEAD
       const response = await fetch(uri);
       if (!response.ok) throw new Error('Failed to read file for upload');
       blob = await response.blob();
@@ -455,6 +482,20 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
     const fileExt = (fileExtCandidate && fileExtCandidate.length <= 4 && !fileExtCandidate.includes('/')) 
       ? fileExtCandidate 
       : (type === 'image' ? 'jpg' : 'mp4');
+=======
+      let safeUri = uri;
+      if (!uri.startsWith('file://')) {
+        const fileName = uri.split('/').pop() || `${Date.now()}`;
+        const cachePath = FileSystem.cacheDirectory + fileName;
+        await FileSystem.copyAsync({ from: uri, to: cachePath });
+        safeUri = cachePath;
+      }
+      const response = await fetch(safeUri);
+      if (!response.ok) throw new Error('Failed to read file for upload');
+      blob = await response.blob();
+    }
+    const fileExt = uri.split('.').pop() || (type === 'image' ? 'jpg' : 'mp4');
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
     const filePath = `posts/${userId}/${fileName}`;
     const { error } = await supabase.storage.from('farmlink').upload(filePath, blob, {
@@ -481,7 +522,10 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
         category: selectedCategory,
         media_urls: mediaUrls,
         media_type: mediaTypeLocked,
+<<<<<<< HEAD
         created_at: new Date().toISOString(),
+=======
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
       });
       setShowSuccess(true);
       setTimeout(() => { reset(); onClose(); onPosted(); }, 1500);
@@ -598,7 +642,11 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
                 <TouchableOpacity
                   style={cpStyles.actionItem}
                   onPress={() => pickMedia('image')}
+<<<<<<< HEAD
                   disabled={mediaItems.length >= MAX_MEDIA || !!(mediaTypeLocked && mediaTypeLocked !== 'image')}
+=======
+                  disabled={mediaItems.length >= MAX_MEDIA || (mediaTypeLocked && mediaTypeLocked !== 'image')}
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
                 >
                   <View style={[cpStyles.actionIcon, { backgroundColor: '#f0fdf4' }]}>
                     <Ionicons name="image-outline" size={20} color="#22c55e" />
@@ -608,7 +656,11 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ visible, onClose, onP
                 <TouchableOpacity
                   style={cpStyles.actionItem}
                   onPress={() => pickMedia('video')}
+<<<<<<< HEAD
                   disabled={mediaItems.length >= MAX_MEDIA || !!(mediaTypeLocked && mediaTypeLocked !== 'video')}
+=======
+                  disabled={mediaItems.length >= MAX_MEDIA || (mediaTypeLocked && mediaTypeLocked !== 'video')}
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
                 >
                   <View style={[cpStyles.actionIcon, { backgroundColor: '#fef3c7' }]}>
                     <Ionicons name="videocam-outline" size={20} color="#d97706" />
@@ -707,10 +759,13 @@ interface PostCardProps {
 const PostCard: React.FC<PostCardProps> = ({
   post, onLike, onComment, onOpenChat, videoRefs, visibleVideoId, renderMentions, index,
 }) => {
+<<<<<<< HEAD
   const { width: screenWidth } = useWindowDimensions();
   const cardWidth = screenWidth - 32;
   const mediaStyle = { width: cardWidth, height: cardWidth * 0.6 };
 
+=======
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   const [mediaIndex, setMediaIndex] = useState(0);
   const [showControls, setShowControls] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -718,6 +773,7 @@ const PostCard: React.FC<PostCardProps> = ({
   const hideControlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+<<<<<<< HEAD
     const video = videoRefs.current.get(post.id);
     if (visibleVideoId === post.id) {
       if (!manuallyPaused) {
@@ -736,6 +792,17 @@ const PostCard: React.FC<PostCardProps> = ({
       setManuallyPaused(false);
     }
   }, [visibleVideoId, post.id, manuallyPaused, videoRefs]);
+=======
+    if (visibleVideoId === post.id) {
+      if (!manuallyPaused) {
+        videoRefs.current.get(post.id)?.playAsync();
+      }
+    } else {
+      videoRefs.current.get(post.id)?.pauseAsync();
+      setManuallyPaused(false);
+    }
+  }, [visibleVideoId, post.id, manuallyPaused]);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
   const toggleControls = () => {
     setShowControls((prev) => !prev);
@@ -748,6 +815,7 @@ const PostCard: React.FC<PostCardProps> = ({
   const handlePlayPause = async () => {
     const video = videoRefs.current.get(post.id);
     if (!video) return;
+<<<<<<< HEAD
     try {
       if (manuallyPaused) {
         await video.playAsync();
@@ -760,6 +828,14 @@ const PostCard: React.FC<PostCardProps> = ({
       if (e.name !== 'AbortError' && !e.message?.includes('AbortError') && !e.message?.includes('interrupted')) {
         console.warn('Video toggle error:', e);
       }
+=======
+    if (manuallyPaused) {
+      await video.playAsync();
+      setManuallyPaused(false);
+    } else {
+      await video.pauseAsync();
+      setManuallyPaused(true);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
     }
   };
 
@@ -788,6 +864,10 @@ const PostCard: React.FC<PostCardProps> = ({
                 </View>
               )}
             </View>
+<<<<<<< HEAD
+=======
+            <Text style={styles.authorTime}>{post.timeAgo}</Text>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
           </View>
         </TouchableOpacity>
         <View style={styles.categoryPill}>
@@ -806,7 +886,11 @@ const PostCard: React.FC<PostCardProps> = ({
             showsHorizontalScrollIndicator={false}
             keyExtractor={(_, i) => `${post.id}_m_${i}`}
             onMomentumScrollEnd={(e) => {
+<<<<<<< HEAD
               const idx = Math.round(e.nativeEvent.contentOffset.x / cardWidth);
+=======
+              const idx = Math.round(e.nativeEvent.contentOffset.x / (SCREEN_WIDTH - 32));
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
               setMediaIndex(idx);
             }}
             renderItem={({ item, index: mi }) => {
@@ -815,7 +899,11 @@ const PostCard: React.FC<PostCardProps> = ({
                   <TouchableOpacity
                     activeOpacity={1}
                     onPress={toggleControls}
+<<<<<<< HEAD
                     style={[styles.mediaItem, mediaStyle]}
+=======
+                    style={styles.mediaItem}
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
                   >
                     <View style={styles.videoWrapper}>
                       <Video
@@ -860,9 +948,15 @@ const PostCard: React.FC<PostCardProps> = ({
                   </TouchableOpacity>
                 );
               }
+<<<<<<< HEAD
               return <Image source={{ uri: item.url }} style={[styles.mediaItem, mediaStyle]} resizeMode="cover" />;
             }}
             snapToInterval={cardWidth}
+=======
+              return <Image source={{ uri: item.url }} style={styles.mediaItem} resizeMode="cover" />;
+            }}
+            snapToInterval={SCREEN_WIDTH - 32}
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
             decelerationRate="fast"
           />
           {post.media.length > 1 && (
@@ -944,7 +1038,11 @@ const CommunityPageContent = () => {
   useEffect(() => {
     bgScale.value = withRepeat(withTiming(1.15, { duration: 8000 }), -1, true);
     bgScale2.value = withRepeat(withTiming(1, { duration: 10000 }), -1, true);
+<<<<<<< HEAD
   }, [bgScale, bgScale2]);
+=======
+  }, []);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   const bgBlob1Style = useAnimatedStyle(() => ({ transform: [{ scale: bgScale.value }], opacity: 0.35 }));
   const bgBlob2Style = useAnimatedStyle(() => ({ transform: [{ scale: bgScale2.value }], opacity: 0.25 }));
 
@@ -998,12 +1096,19 @@ const CommunityPageContent = () => {
         const userInfo = userMap[row.user_id] || { username: 'Farmer', avatar: '🌾' };
         let media: MediaItem[] = [];
         if (Array.isArray(row.media_urls) && row.media_urls.length > 0) {
+<<<<<<< HEAD
           media = row.media_urls
             .filter((url: string) => url && !url.includes('your-storage-url'))
             .map((url: string) => ({
               url: Platform.OS === 'web' ? `${url}?bypass_sw=${Date.now()}` : url,
               type: row.media_type === 'video' ? 'video' : 'image',
             }));
+=======
+          media = row.media_urls.map((url: string) => ({
+            url,
+            type: row.media_type === 'video' ? 'video' : 'image',
+          }));
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
         }
         return {
           id: String(row.id),
@@ -1023,8 +1128,12 @@ const CommunityPageContent = () => {
         };
       });
       setPosts(mapped);
+<<<<<<< HEAD
     } catch (err: any) {
       if (err.name === 'AbortError' || err.message?.includes('AbortError')) return;
+=======
+    } catch (err) {
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
       console.error('Failed to fetch posts', err);
       Alert.alert('Error', 'Could not load posts');
     } finally {
@@ -1032,7 +1141,11 @@ const CommunityPageContent = () => {
     }
   }, [activeCategory, user]);
 
+<<<<<<< HEAD
   useEffect(() => { fetchPosts(); }, [activeCategory, fetchPosts]);
+=======
+  useEffect(() => { fetchPosts(); }, [activeCategory]);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
   const fetchComments = useCallback(async (postId: string): Promise<Comment[]> => {
     try {
@@ -1042,7 +1155,11 @@ const CommunityPageContent = () => {
           replies:comments!parent_comment_id(id, user_id, content, created_at, likes_count)`)
         .eq('post_id', postId)
         .is('parent_comment_id', null)
+<<<<<<< HEAD
       .order('created_at', { ascending: false });
+=======
+        .order('created_at', { ascending: true });
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
       if (error) throw error;
       if (!data || data.length === 0) return [];
 
@@ -1190,7 +1307,10 @@ const CommunityPageContent = () => {
         user_id: user.id,
         content: text,
         parent_comment_id: replyingTo?.commentId ?? null,
+<<<<<<< HEAD
         created_at: new Date().toISOString(),
+=======
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
       }).select().single();
       if (error) throw error;
       await processMentions(text, user.id, commentModalPost.id, data.id);
@@ -1200,7 +1320,11 @@ const CommunityPageContent = () => {
       setPosts((prev) =>
         prev.map((p) => (p.id === commentModalPost.id ? { ...p, comments: newComments, replies: newComments.length } : p))
       );
+<<<<<<< HEAD
     } catch { Alert.alert('Error', 'Failed to post comment'); }
+=======
+    } catch (err) { Alert.alert('Error', 'Failed to post comment'); }
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   }, [user, commentModalPost, fetchComments]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
@@ -1333,6 +1457,7 @@ const CommunityPageContent = () => {
           <BottomNav />
         </View>
 
+<<<<<<< HEAD
         <View style={styles.fabContainer}>
           <TouchableOpacity style={[styles.fab, styles.aiFab]} onPress={() => router.push('/ai')}>
             <Ionicons name="sparkles" size={24} color="#fff" />
@@ -1341,6 +1466,11 @@ const CommunityPageContent = () => {
             <Ionicons name="chatbubbles" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
+=======
+        <TouchableOpacity style={styles.fab} onPress={() => setShowChatList(true)}>
+          <Ionicons name="chatbubbles" size={24} color="#fff" />
+        </TouchableOpacity>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
         {showChatList && (
           <View style={styles.modalOverlay}>
@@ -1418,7 +1548,11 @@ const CommunityPageContent = () => {
 
         {showCreateModal && (
           <CreatePostModal visible={showCreateModal} onClose={() => setShowCreateModal(false)}
+<<<<<<< HEAD
             onPosted={() => { setShowCreateModal(false); fetchPosts(); }} userId={user?.id || ''} />
+=======
+            onPosted={() => { setShowCreateModal(false); fetchPosts(); }} userId={user?.id} />
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
         )}
       </SafeAreaView>
     </View>
@@ -1440,17 +1574,28 @@ const styles = StyleSheet.create({
   bgBlob: { position: 'absolute', borderRadius: 999, overflow: 'hidden' },
   bgBlob1: { left: -SCREEN_WIDTH * 0.2, top: -100, width: SCREEN_WIDTH * 0.6, height: SCREEN_WIDTH * 0.6, backgroundColor: 'rgba(34,197,94,0.15)' },
   bgBlob2: { right: -SCREEN_WIDTH * 0.2, bottom: 100, width: SCREEN_WIDTH * 0.7, height: SCREEN_WIDTH * 0.7, backgroundColor: 'rgba(16,185,129,0.12)' },
+<<<<<<< HEAD
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+=======
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   loadingText: { fontSize: 14, color: '#9ca3af' },
   fixedHeader: {
     position: 'absolute', paddingTop: 90, top: 0, left: 0, right: 0, zIndex: 10, backgroundColor: '#f0fdf4',
   },
   searchWrap: { paddingHorizontal: 16, marginBottom: 12, marginTop: 8 },
   searchCard: { padding: 6 },
+<<<<<<< HEAD
   searchRow: { flexDirection: 'row', alignItems: 'center' },
   addPostBtn: { padding: 4, marginRight: 8 },
   searchInput: { flex: 1, fontSize: 14, color: '#111827', paddingVertical: 8 },
   tabsRow: { paddingHorizontal: 16, marginBottom: 8 },
+=======
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  addPostBtn: { padding: 4 },
+  searchInput: { flex: 1, fontSize: 14, color: '#111827', paddingVertical: 8 },
+  tabsRow: { paddingHorizontal: 16, gap: 8, marginBottom: 8 },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: '#e5e7eb' },
   tabActive: { backgroundColor: '#22c55e', borderColor: '#16a34a' },
   tabText: { fontSize: 13, fontWeight: '500', color: '#6b7280' },
@@ -1466,6 +1611,7 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
     overflow: 'hidden',
+<<<<<<< HEAD
     marginHorizontal: 16,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 },
@@ -1476,6 +1622,17 @@ authorRow: { flexDirection: 'row', alignItems: 'center', flex: 1 },
 authorNameRow: { flexDirection: 'row', alignItems: 'center' },
    authorName: { fontSize: 15, fontWeight: '700', color: '#111827' },
    officialBadge: { flexDirection: 'row', alignItems: 'center', marginLeft: 6, backgroundColor: '#22c55e', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 },
+=======
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 },
+  authorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  authorAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
+  authorAvatarText: { fontSize: 22 },
+  authorInfo: { flex: 1 },
+  authorNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  authorName: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  officialBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#22c55e', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   officialText: { fontSize: 10, fontWeight: '600', color: '#fff' },
   authorTime: { fontSize: 12, color: '#9ca3af', marginTop: 1 },
   categoryPill: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
@@ -1484,10 +1641,17 @@ authorNameRow: { flexDirection: 'row', alignItems: 'center' },
   mentionLink: { color: '#16a34a', fontWeight: '600' },
 
   mediaContainer: { marginBottom: 4 },
+<<<<<<< HEAD
   mediaItem: { width: SCREEN_WIDTH - 32, height: (SCREEN_WIDTH - 32) * 0.6, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   mediaVideo: { width: '100%', height: '100%' },
   videoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
   mediaDots: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 8 },
+=======
+  mediaItem: { width: SCREEN_WIDTH - 0, height: SCREEN_WIDTH * 0.6, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
+  mediaVideo: { width: '100%', height: '100%' },
+  videoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
+  mediaDots: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingVertical: 8 },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   mediaDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#d1d5db' },
   mediaDotActive: { backgroundColor: '#22c55e', width: 18 },
 
@@ -1514,23 +1678,38 @@ authorNameRow: { flexDirection: 'row', alignItems: 'center' },
   },
 
   reactionSummary: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 },
+<<<<<<< HEAD
 reactionItem: { flexDirection: 'row', alignItems: 'center' },
    reactionIconBg: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', marginRight: 4 },
+=======
+  reactionItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  reactionIconBg: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center' },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   reactionCount: { fontSize: 13, color: '#6b7280' },
   reactionComments: { fontSize: 13, color: '#6b7280' },
 
   actionDivider: { height: 1, backgroundColor: '#f3f4f6', marginHorizontal: 16 },
+<<<<<<< HEAD
 actionBar: { flexDirection: 'row', paddingVertical: 4 },
    actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   actionBtnText: { fontSize: 14, fontWeight: '500', color: '#6b7280' },
   actionBtnTextActive: { color: '#ef4444' },
 
   latestComment: { flexDirection: 'row', alignItems: 'flex-start' },
+=======
+  actionBar: { flexDirection: 'row', paddingVertical: 4 },
+  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  actionBtnText: { fontSize: 14, fontWeight: '500', color: '#6b7280' },
+  actionBtnTextActive: { color: '#ef4444' },
+
+  latestComment: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   latestCommentAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
   latestCommentBubble: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
   latestCommentUsername: { fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 2 },
   latestCommentText: { fontSize: 13, color: '#4b5563', lineHeight: 18 },
 
+<<<<<<< HEAD
   emptyFeed: { alignItems: 'center', paddingVertical: 60 },
   emptyFeedTitle: { fontSize: 18, fontWeight: '700', color: '#6b7280' },
   emptyFeedSub: { fontSize: 14, color: '#9ca3af', textAlign: 'center', paddingHorizontal: 32 },
@@ -1538,11 +1717,22 @@ actionBar: { flexDirection: 'row', paddingVertical: 4 },
   fabContainer: { position: 'absolute', bottom: BOTTOM_NAV_HEIGHT + 16, right: 20, alignItems: 'center', gap: 16, zIndex: 100 },
   fab: { backgroundColor: '#22c55e', width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 6 },
   aiFab: { backgroundColor: '#3b82f6' },
+=======
+  emptyFeed: { alignItems: 'center', paddingVertical: 60, gap: 12 },
+  emptyFeedTitle: { fontSize: 18, fontWeight: '700', color: '#6b7280' },
+  emptyFeedSub: { fontSize: 14, color: '#9ca3af', textAlign: 'center', paddingHorizontal: 32 },
+
+  fab: { position: 'absolute', bottom: BOTTOM_NAV_HEIGHT + 16, right: 20, backgroundColor: '#22c55e', width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 6, zIndex: 100 },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   modalOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#fff', zIndex: 200 },
 
   chatListModal: { flex: 1 },
   chatSearchBar: {
+<<<<<<< HEAD
     flexDirection: 'row', alignItems: 'center',
+=======
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
     paddingHorizontal: 16, paddingVertical: 10,
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
   },
@@ -1566,7 +1756,11 @@ actionBar: { flexDirection: 'row', paddingVertical: 4 },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   commentScreenTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
   postSummary: { backgroundColor: '#f9fafb', marginHorizontal: 16, marginTop: 12, marginBottom: 8, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#f3f4f6' },
+<<<<<<< HEAD
   postSummaryAuthor: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+=======
+  postSummaryAuthor: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   postSummaryAvatar: { fontSize: 28, width: 44, height: 44, textAlign: 'center', textAlignVertical: 'center', backgroundColor: '#dcfce7', borderRadius: 22, overflow: 'hidden' },
   postSummaryName: { fontSize: 15, fontWeight: '700', color: '#111827' },
   postSummaryTime: { fontSize: 12, color: '#9ca3af' },
@@ -1576,7 +1770,11 @@ actionBar: { flexDirection: 'row', paddingVertical: 4 },
   postStatItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   postStatText: { fontSize: 13, color: '#6b7280' },
   commentsListContent: { paddingHorizontal: 16, paddingBottom: 16, paddingTop: 4 },
+<<<<<<< HEAD
   commentItem: { flexDirection: 'row', marginVertical: 8 },
+=======
+  commentItem: { flexDirection: 'row', gap: 10, marginVertical: 8 },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   commentAvatarWrap: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 },
   commentAvatarText: { fontSize: 18 },
   commentBody: { flex: 1 },

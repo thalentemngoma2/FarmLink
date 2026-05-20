@@ -207,6 +207,7 @@ void supabase
     }
   };
 
+<<<<<<< HEAD
 const signup = async (email: string, password: string, name: string, role?: string, location?: string) => {
    setIsLoading(true);
    try {
@@ -246,6 +247,43 @@ const signup = async (email: string, password: string, name: string, role?: stri
      setIsLoading(false);
    }
  };
+=======
+const signup = async (email: string, password: string, name: string) => {
+  setIsLoading(true);
+  try {
+    // 1. Create user in Supabase Auth (email confirmation disabled)
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name }, emailRedirectTo: undefined },
+    });
+    if (error) throw error;
+    if (!data.user) throw new Error('Signup failed');
+
+    // 2. Generate OTP and store in database
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    const { error: dbError } = await supabase
+      .from('otp_verifications')
+      .insert({ email, otp_code: otp, expires_at: expiresAt });
+
+    if (dbError) throw dbError;
+
+    // 3. Send OTP via Edge Function
+    const { error: invokeError } = await supabase.functions.invoke('send-otp-email', {
+      body: { email, otp },
+    });
+    if (invokeError) throw new Error('Failed to send OTP email');
+
+    console.log('Signup success, OTP sent to', email);
+  } catch (err: any) {
+    throw new Error(err.message || 'Signup failed');
+  } finally {
+    setIsLoading(false);
+  }
+};
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
   const verifyOTP = async (email: string, token: string) => {
     setIsLoading(true);

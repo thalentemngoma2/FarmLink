@@ -1,5 +1,5 @@
+// app/(tabs)/profile.tsx
 import { BottomNav } from '@/components/bottom-nav';
-import { MobileHeader } from '@/components/mobile-header';
 import { GlassCard } from '@/components/ui/glass-card';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -22,7 +22,6 @@ import {
 } from 'react-native';
 import Animated, {
   FadeIn,
-  interpolate,
   SlideInDown,
   useAnimatedStyle,
   useSharedValue,
@@ -31,6 +30,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+<<<<<<< HEAD
 
 // Types
 interface ProfileData {
@@ -46,6 +46,24 @@ interface ProfileData {
   answers_count: number;
   likes_count: number;
   isRetailer?: boolean;
+=======
+// -----------------------------------------------------------------------------
+// Types (based on public.users table only)
+// -----------------------------------------------------------------------------
+interface UserData {
+  user_id: string;
+  username: string;
+  email: string;
+  phone_number: string | null;
+  role: string;
+  created_at: string;
+}
+
+interface UserStats {
+  questions_count: number;
+  answers_count: number;
+  likes_count: number;      // likes received on user's posts
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 }
 
 interface Achievement {
@@ -53,7 +71,11 @@ interface Achievement {
   earned_at: string;
 }
 
+<<<<<<< HEAD
 // Hardcoded menu items (these are static UI, not profile data)
+=======
+// Static menu items
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 const menuItems = [
   { icon: 'notifications-outline', label: 'Notifications', badge: 3 },
   { icon: 'settings-outline', label: 'Settings' },
@@ -61,7 +83,10 @@ const menuItems = [
   { icon: 'log-out-outline', label: 'Log Out', danger: true },
 ];
 
+<<<<<<< HEAD
 // Achievements definition (static labels, earned status from API)
+=======
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 const achievementsList = [
   { id: 'first_question', icon: 'chatbubble-outline', label: 'First Question' },
   { id: 'helpful_answer', icon: 'heart-outline', label: 'Helpful Answer' },
@@ -71,6 +96,7 @@ const achievementsList = [
 
 export default function ProfilePage() {
   const router = useRouter();
+<<<<<<< HEAD
    const [profile, setProfile] = useState<ProfileData | null>(null);
    const [achievements, setAchievements] = useState<Achievement[]>([]);
    const [loading, setLoading] = useState(true);
@@ -78,8 +104,18 @@ export default function ProfilePage() {
 
    // Determine user role from AuthContext
    const userRole = user?.role || 'farmer';
+=======
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [stats, setStats] = useState<UserStats>({ questions_count: 0, answers_count: 0, likes_count: 0 });
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [loading, setLoading] = useState(true);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
+  // ---------------------------------------------------------------------------
+  // Load user & stats (with auto‑creation of missing user)
+  // ---------------------------------------------------------------------------
   useEffect(() => {
+<<<<<<< HEAD
     const fetchProfile = async () => {
       if (!user) {
         setLoading(false);
@@ -129,10 +165,62 @@ export default function ProfilePage() {
         }
       } catch (error) {
         console.error('Error fetching profile:', error);
+=======
+    const loadUserAndData = async () => {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          router.replace('/login');
+          return;
+        }
+
+        // Try to fetch from users – use maybeSingle() to avoid 406 error when no row
+        let { data: userInfo, error: userError } = await supabase
+          .from('users')
+          .select('user_id, username, email, phone_number, role, created_at')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        // If not found, create a minimal entry
+        if (!userInfo) {
+          const newUser = {
+            user_id: user.id,
+            username: user.email?.split('@')[0] || 'Farmer',
+            email: user.email!,
+            role: 'farmer',
+            created_at: new Date().toISOString(),
+            // If your table has an 'updated_at' column, include it:
+            // updated_at: new Date().toISOString(),
+          };
+          const { data: inserted, error: insertError } = await supabase
+            .from('users')
+            .insert(newUser)
+            .select('user_id, username, email, phone_number, role, created_at')
+            .single();
+
+          if (insertError) {
+            console.error('Failed to create user record', insertError);
+            throw new Error('Could not create profile');
+          }
+          userInfo = inserted;
+        } else if (userError) {
+          // Some other error occurred (e.g., network)
+          console.error('User fetch error', userError);
+          throw new Error('Could not load profile');
+        }
+
+        setUserData(userInfo);
+        await fetchUserStats(user.id);
+        await fetchAchievements(user.id);
+      } catch (err) {
+        console.error('Profile loading error', err);
+        Alert.alert('Error', 'Failed to load profile');
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
       } finally {
         setLoading(false);
       }
     };
+<<<<<<< HEAD
 
     fetchProfile();
   }, [user]);
@@ -170,6 +258,92 @@ export default function ProfilePage() {
   };
 
   // Background animation (same as before)
+=======
+
+    loadUserAndData();
+  }, []);
+
+  const fetchUserStats = async (userId: string) => {
+    try {
+      // questions count
+      const { count: questionsCount, error: qErr } = await supabase
+        .from('posts')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId);
+      if (qErr) console.warn('Questions count error', qErr);
+
+      // answers count
+      const { count: answersCount, error: aErr } = await supabase
+        .from('comments')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId);
+      if (aErr) console.warn('Answers count error', aErr);
+
+      // likes received: sum of post_likes where posts.user_id = userId
+      let likesReceived = 0;
+      const { data: userPosts, error: postsErr } = await supabase
+        .from('posts')
+        .select('id')
+        .eq('user_id', userId);
+      if (!postsErr && userPosts && userPosts.length > 0) {
+        const postIds = userPosts.map(p => p.id);
+        const { count: likedCount, error: likeErr } = await supabase
+          .from('post_likes')
+          .select('id', { count: 'exact', head: true })
+          .in('post_id', postIds);
+        if (!likeErr) likesReceived = likedCount || 0;
+      }
+
+      setStats({
+        questions_count: questionsCount || 0,
+        answers_count: answersCount || 0,
+        likes_count: likesReceived,
+      });
+    } catch (err) {
+      console.error('Failed to fetch user stats', err);
+    }
+  };
+
+  const fetchAchievements = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_achievements')
+        .select('achievement_id, earned_at')
+        .eq('user_id', userId);
+      if (error && error.code !== '42P01') {
+        console.warn('Achievements error', error);
+      } else if (data) {
+        setAchievements(data);
+      }
+    } catch (err) {
+      console.error('Achievements fetch error', err);
+    }
+  };
+
+  const isEarned = (id: string) => achievements.some(a => a.achievement_id === id);
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            await supabase.auth.signOut();
+            router.replace('/login');
+          },
+        },
+      ]
+    );
+  };
+
+  // ---------------------------------------------------------------------------
+  // Background animations
+  // ---------------------------------------------------------------------------
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
   const bgScale2 = useSharedValue(1.2);
@@ -184,12 +358,11 @@ export default function ProfilePage() {
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }],
-    opacity: interpolate(bgOpacity.value, [0.3, 0.5], [0.3, 0.5]),
+    opacity: bgOpacity.value,
   }));
-
   const bgBlob2Style = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale2.value }],
-    opacity: interpolate(bgOpacity2.value, [0.2, 0.4], [0.2, 0.4]),
+    opacity: bgOpacity2.value,
   }));
 
   const { width, height } = Dimensions.get('window');
@@ -204,6 +377,7 @@ export default function ProfilePage() {
     );
   }
 
+<<<<<<< HEAD
    // Fallback if profile not loaded
    const displayProfile = profile || {
      name: user?.name || 'New User',
@@ -232,6 +406,27 @@ export default function ProfilePage() {
    const roleInfo = getRoleLabel();
 
    return (
+=======
+  if (!userData) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
+          <Text style={styles.errorText}>Unable to load profile.</Text>
+          <TouchableOpacity onPress={() => router.replace('/login')} style={styles.errorButton}>
+            <Text style={styles.errorButtonText}>Go to Login</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const joinDate = userData.created_at
+    ? new Date(userData.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+    : 'Recently';
+
+  return (
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
         {/* Background (unchanged) */}
@@ -252,16 +447,27 @@ export default function ProfilePage() {
           <BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} />
         </Animated.View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <MobileHeader />
+        {/* Header with back button */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#11181C" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={{ width: 40 }} />
+        </View>
 
+<<<<<<< HEAD
           {/* Profile header with dynamic data */}
+=======
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
           <Animated.View entering={SlideInDown.duration(500)} style={styles.section}>
             <GlassCard style={styles.profileCard}>
               <View style={styles.profileRow}>
                 <View style={styles.avatarContainer}>
                   <LinearGradient colors={['#22c55e', '#16a34a']} style={styles.avatarGradient}>
                     <Text style={styles.avatarText}>
+<<<<<<< HEAD
                       {displayProfile.avatar || displayProfile.name.charAt(0).toUpperCase()}
                     </Text>
                   </LinearGradient>
@@ -287,29 +493,69 @@ export default function ProfilePage() {
                      <Text style={styles.infoText}>Joined {joinDate}</Text>
                    </View>
                  </View>
+=======
+                      {userData.username?.[0]?.toUpperCase() || 'F'}
+                    </Text>
+                  </LinearGradient>
+                </View>
+                <View style={styles.profileInfo}>
+                  <Text style={styles.profileName}>{userData.username}</Text>
+                  <View style={styles.infoRow}>
+                    <Ionicons name="mail-outline" size={12} color="#9ca3af" />
+                    <Text style={styles.infoText}>{userData.email}</Text>
+                  </View>
+                  {userData.phone_number && (
+                    <View style={styles.infoRow}>
+                      <Ionicons name="call-outline" size={12} color="#9ca3af" />
+                      <Text style={styles.infoText}>{userData.phone_number}</Text>
+                    </View>
+                  )}
+                  <View style={styles.infoRow}>
+                    <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                    <Text style={styles.infoText}>Joined {joinDate}</Text>
+                  </View>
+                </View>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
               </View>
 
               {/* Stats from API */}
               <View style={styles.statsContainer}>
                 <View style={styles.statItem}>
+<<<<<<< HEAD
                   <Text style={styles.statNumber}>{displayProfile.questions_count}</Text>
+=======
+                  <Text style={styles.statNumber}>{stats.questions_count}</Text>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
                   <Text style={styles.statLabel}>Questions</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
+<<<<<<< HEAD
                   <Text style={styles.statNumber}>{displayProfile.answers_count}</Text>
+=======
+                  <Text style={styles.statNumber}>{stats.answers_count}</Text>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
                   <Text style={styles.statLabel}>Answers</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
+<<<<<<< HEAD
                   <Text style={styles.statNumber}>{displayProfile.likes_count}</Text>
                   <Text style={styles.statLabel}>Likes</Text>
+=======
+                  <Text style={styles.statNumber}>{stats.likes_count}</Text>
+                  <Text style={styles.statLabel}>Likes Received</Text>
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
                 </View>
               </View>
             </GlassCard>
           </Animated.View>
 
+<<<<<<< HEAD
           {/* Achievements – dynamic earned status */}
+=======
+          {/* Achievements (optional) */}
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
           <Animated.View entering={FadeIn.delay(100)} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="trophy-outline" size={18} color="#22c55e" />
@@ -352,13 +598,18 @@ export default function ProfilePage() {
             </GlassCard>
           </Animated.View>
 
+<<<<<<< HEAD
           {/* Farm info – dynamic */}
+=======
+          {/* Farm info (placeholder) */}
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
           <Animated.View entering={FadeIn.delay(150)} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name={displayProfile.isRetailer ? "storefront-outline" : "leaf-outline"} size={18} color="#22c55e" />
               <Text style={styles.sectionTitle}>{displayProfile.isRetailer ? 'My Business' : 'My Farm'}</Text>
             </View>
             <GlassCard style={styles.farmCard}>
+<<<<<<< HEAD
               {displayProfile.isRetailer ? (
                 <View style={styles.farmRow}>
                   <Text style={styles.farmLabel}>Business Type</Text>
@@ -387,6 +638,23 @@ export default function ProfilePage() {
           </Animated.View>
 
           {/* Menu items (static) */}
+=======
+              <View style={styles.farmRow}>
+                <Text style={styles.farmLabel}>Role</Text>
+                <Text style={styles.farmValue}>{userData.role || 'Farmer'}</Text>
+              </View>
+              <View style={styles.farmRow}>
+                <Text style={styles.farmLabel}>Farm Size</Text>
+                <Text style={styles.farmValue}>Not specified</Text>
+              </View>
+              <View style={styles.farmRow}>
+                <Text style={styles.farmLabel}>Main Crops</Text>
+                <Text style={styles.farmValue}>Not specified</Text>
+              </View>
+            </GlassCard>
+          </Animated.View>
+
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
           <Animated.View entering={FadeIn.delay(200)} style={styles.section}>
             <GlassCard style={styles.menuCard}>
               {menuItems.map((item, idx) => (
@@ -397,14 +665,25 @@ export default function ProfilePage() {
                   onPress={() => {
                     if (item.label === 'Log Out') {
                       handleLogout();
+<<<<<<< HEAD
                     } else {
                       console.log(item.label);
+=======
+                    } else if (item.route) {
+                      router.push(item.route as any);
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
                     }
                   }}
                 >
                   <View style={styles.menuLeft}>
-                    <Ionicons name={item.icon as any} size={20} color={item.danger ? '#ef4444' : '#9ca3af'} />
-                    <Text style={[styles.menuLabel, item.danger && styles.menuLabelDanger]}>{item.label}</Text>
+                    <Ionicons
+                      name={item.icon as any}
+                      size={20}
+                      color={item.danger ? '#ef4444' : '#9ca3af'}
+                    />
+                    <Text style={[styles.menuLabel, item.danger && styles.menuLabelDanger]}>
+                      {item.label}
+                    </Text>
                   </View>
                   <View style={styles.menuRight}>
                     {item.badge && (
@@ -432,7 +711,18 @@ export default function ProfilePage() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
   container: { flex: 1, position: 'relative' },
-  scrollContent: { flexGrow: 1, paddingBottom: 80, paddingTop: 120 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    backgroundColor: 'transparent',
+  },
+  backButton: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: '#11181C' },
+  scrollContent: { flexGrow: 1, paddingBottom: 80, paddingTop: 0 },
   bgBlob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)', overflow: 'hidden' },
   section: { paddingHorizontal: 16, marginBottom: 16 },
   profileCard: { padding: 16 },
@@ -440,6 +730,7 @@ const styles = StyleSheet.create({
   avatarContainer: { position: 'relative' },
   avatarGradient: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 32, fontWeight: 'bold', color: 'white' },
+<<<<<<< HEAD
    editAvatar: {
      position: 'absolute',
      bottom: 0,
@@ -457,9 +748,20 @@ const styles = StyleSheet.create({
    profileName: { fontSize: 18, fontWeight: 'bold', color: '#11181C' },
    roleBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
    roleBadgeText: { fontSize: 11, fontWeight: '600' },
+=======
+  profileInfo: { flex: 1 },
+  profileName: { fontSize: 18, fontWeight: 'bold', color: '#11181C', marginBottom: 4 },
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   infoText: { fontSize: 12, color: '#9ca3af' },
-  statsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
   statItem: { alignItems: 'center' },
   statNumber: { fontSize: 20, fontWeight: 'bold', color: '#11181C' },
   statLabel: { fontSize: 10, color: '#9ca3af', marginTop: 2 },
@@ -479,10 +781,16 @@ const styles = StyleSheet.create({
   farmRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   farmLabel: { fontSize: 14, color: '#687076' },
   farmValue: { fontSize: 14, fontWeight: '500', color: '#11181C' },
-  editFarmButton: { marginTop: 8, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(34,197,94,0.1)', alignItems: 'center' },
-  editFarmText: { fontSize: 14, fontWeight: '500', color: '#22c55e' },
   menuCard: { overflow: 'hidden' },
-  menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
+  menuItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
   menuItemLast: { borderBottomWidth: 0 },
   menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   menuLabel: { fontSize: 14, color: '#11181C' },

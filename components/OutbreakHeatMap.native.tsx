@@ -5,11 +5,15 @@ import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
+<<<<<<< HEAD
   Platform,
+=======
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   StyleSheet,
   Text,
   View
 } from 'react-native';
+<<<<<<< HEAD
 import MockOutbreakHeatMap from './MockOutbreakHeatMap';
 
 // react-native-maps is optional in this repo; if it's not installed we render a mock map.
@@ -29,6 +33,9 @@ if (Platform.OS !== 'web') {
     // ignore - we'll render MockOutbreakHeatMap
   }
 }
+=======
+import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
 
 import { supabase } from '@/lib/supabase';
 
@@ -130,11 +137,14 @@ export default function OutbreakHeatMap() {
     );
   }
 
+<<<<<<< HEAD
   // If react-native-maps isn't available, fall back to the mock map.
   if (!MapView) {
     return <MockOutbreakHeatMap />;
   }
 
+=======
+>>>>>>> remotes/gozilethu/farmlink-Mbutho
   return (
     <View style={styles.container}>
       <MapView
