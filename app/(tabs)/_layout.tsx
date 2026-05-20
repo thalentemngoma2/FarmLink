@@ -2,9 +2,9 @@
 import { Stack } from 'expo-router';
 
 export const unstable_settings = {
-  initialRouteName: 'community',
+  initialRouteName: 'index',
 };
 
 export default function RootLayout() {
-  return <Stack screenOptions={{ headerShown: false }} initialRouteName="community" />;
+  return <Stack screenOptions={{ headerShown: false }} initialRouteName="index" />;
 }

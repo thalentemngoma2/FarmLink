@@ -30,7 +30,6 @@ import Animated, {
 const userTypes = [
   { id: 'farmer', label: 'Farmer', description: 'I grow crops and raise livestock' },
   { id: 'retailer', label: 'Retailer', description: 'I buy produce for my store or business' },
-  { id: 'extension_officer', label: 'Extension Officer', description: 'I provide agricultural advice and support' },
 ];
 
 export default function SignupPage() {

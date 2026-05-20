@@ -1,6 +1,8 @@
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import * as SecureStore from 'expo-secure-store';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -11,7 +13,8 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  ScrollView
 } from 'react-native';
 import Animated, {
   FadeIn,
@@ -24,6 +27,24 @@ import Animated, {
   withTiming
 } from 'react-native-reanimated';
 
+const IS_WEB = Platform.OS === 'web' || typeof window !== 'undefined';
+
+const secureGet = async (key: string): Promise<string | null> => {
+  if (IS_WEB) return null;
+  try {
+    return await SecureStore.getItemAsync(key);
+  } catch {
+    return null;
+  }
+};
+
+const secureSet = async (key: string, value: string): Promise<void> => {
+  if (IS_WEB) return;
+  try {
+    await SecureStore.setItemAsync(key, value);
+  } catch {}
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
@@ -35,6 +56,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
+  const [hasSavedCredentials, setHasSavedCredentials] = useState(false);
 
   useEffect(() => {
     if (showVerifiedMessage) {
@@ -42,6 +65,11 @@ export default function LoginPage() {
       return () => clearTimeout(timer);
     }
   }, [showVerifiedMessage]);
+
+  useEffect(() => {
+    checkBiometricSupport();
+    loadSavedCredentials();
+  }, []);
 
   // Background animations (same as before, omitted for brevity)
   const bgScale1 = useSharedValue(1);
@@ -73,11 +101,113 @@ export default function LoginPage() {
     transform: [{ scale: bgScale3.value }, { translateY: bgY3.value }],
   }));
 
+  const checkBiometricSupport = async () => {
+    if (IS_WEB) {
+      setIsBiometricAvailable(false);
+      return;
+    }
+    try {
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      setIsBiometricAvailable(compatible && enrolled);
+    } catch {
+      setIsBiometricAvailable(false);
+    }
+  };
+
+  const loadSavedCredentials = async () => {
+    try {
+      if (IS_WEB) {
+        const saved = localStorage.getItem('biometric_credentials');
+        setHasSavedCredentials(!!saved);
+        return;
+      }
+      const saved = await secureGet('biometric_credentials');
+      setHasSavedCredentials(!!saved);
+    } catch {
+      setHasSavedCredentials(false);
+    }
+  };
+
   const handleLogin = async () => {
     setError('');
     setIsLoading(true);
     try {
-      await login(email, password);
+      let loginEmail = email;
+      let loginPassword = password;
+
+      // Enforce biometric authentication on native devices.
+      // User can only proceed if biometrics succeeds.
+      if (!IS_WEB) {
+
+        // If biometrics is not available on this device, block login.
+        if (!isBiometricAvailable) {
+          setIsLoading(false);
+          setError('Biometric authentication is not available on this device.');
+          return;
+        }
+
+
+        // If the user didn't manually type credentials, check for saved ones
+        if (!loginEmail || !loginPassword) {
+          if (!hasSavedCredentials) {
+            setError('Please enter your email and password.');
+            setIsLoading(false);
+            return;
+          }
+        }
+
+        // Prompt for biometric identity verification
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Verify identity to sign in',
+          disableDeviceFallback: false,
+        });
+
+        if (!result.success) {
+          setIsLoading(false); // User cancelled or failed authentication
+          return;
+        }
+
+        // If no credentials were typed, retrieve the saved ones
+        if (!loginEmail || !loginPassword) {
+          const savedCredentials = await secureGet('biometric_credentials');
+          if (savedCredentials) {
+            const parsed = JSON.parse(savedCredentials);
+            loginEmail = parsed.email;
+            loginPassword = parsed.password;
+          }
+        }
+      } else {
+        // Web platform or device without biometrics fallback
+        if (!loginEmail || !loginPassword) {
+          if (IS_WEB && hasSavedCredentials) {
+            const savedStr = localStorage.getItem('biometric_credentials');
+            if (savedStr) {
+              const parsed = JSON.parse(savedStr);
+              loginEmail = parsed.email;
+              loginPassword = parsed.password;
+            } else {
+              setError('Please enter your email and password.');
+              setIsLoading(false);
+              return;
+            }
+          } else {
+            setError('Please enter your email and password.');
+            setIsLoading(false);
+            return;
+          }
+        }
+      }
+
+      // Execute the login request
+      await login(loginEmail, loginPassword);
+
+      // Save the credentials securely for the next sign-in
+      if (!IS_WEB && isBiometricAvailable) {
+        await secureSet('biometric_credentials', JSON.stringify({ email: loginEmail, password: loginPassword }));
+        setHasSavedCredentials(true);
+      }
+
       router.replace('/');
     } catch (err: any) {
       setError(err.message);
@@ -93,7 +223,8 @@ export default function LoginPage() {
       <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
       <Animated.View style={[styles.blob, styles.blob3, bgBlob3Style]} />
 
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
         <Animated.View entering={SlideInDown.duration(600)} style={styles.logoContainer}>
           <Animated.View entering={FadeIn.delay(200)} style={styles.logoWrapper}>
             <LinearGradient colors={['#22c55e', '#16a34a']} style={styles.logoGradient}>
@@ -147,6 +278,12 @@ export default function LoginPage() {
               <Text style={styles.forgotText}>Forgot password?</Text>
             </TouchableOpacity>
 
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
             <TouchableOpacity style={[styles.loginButton, isLoading && styles.loginButtonDisabled]} onPress={handleLogin} disabled={isLoading} activeOpacity={0.8}>
               {isLoading ? (
                 <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.spinner}>
@@ -154,8 +291,17 @@ export default function LoginPage() {
                 </Animated.View>
               ) : (
                 <>
-                  <Text style={styles.loginButtonText}>Sign In</Text>
-                  <Ionicons name="arrow-forward" size={20} color="white" />
+          {(!IS_WEB && isBiometricAvailable && hasSavedCredentials && !email && !password) ? (
+            <>
+              <Text style={styles.loginButtonText}>Unlock with Biometrics</Text>
+              <Ionicons name="finger-print" size={20} color="white" />
+            </>
+          ) : (
+            <>
+              <Text style={styles.loginButtonText}>Sign In</Text>
+              <Ionicons name="arrow-forward" size={20} color="white" />
+            </>
+          )}
                 </>
               )}
             </TouchableOpacity>
@@ -185,14 +331,16 @@ export default function LoginPage() {
             </TouchableOpacity>
           </View>
         </Animated.View>
-      </View>
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center' },
+  content: { alignItems: 'center', padding: 16, paddingVertical: 40 },
   blob: {
     position: 'absolute',
     borderRadius: 999,
@@ -202,39 +350,39 @@ const styles = StyleSheet.create({
   },
   blob1: { top: -50, left: -50 },
   blob2: { bottom: -50, right: -50, width: 250, height: 250 },
-  blob3: { top: '30%', left: '50%', marginLeft: -100, width: 200, height: 200, opacity: 0.5 },
+  blob3: { top: '30%', left: '50%' },
   logoContainer: { alignItems: 'center', marginBottom: 32 },
   logoWrapper: { width: 80, height: 80, borderRadius: 40, overflow: 'hidden', marginBottom: 16 },
   logoGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#11181C', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#687076', textAlign: 'center' },
+  title: { fontSize: 28, fontWeight: 'bold', color: '#11181C' },
+  subtitle: { fontSize: 14, color: '#687076', marginTop: 4 },
   formWrapper: { width: '100%', maxWidth: 400 },
-  formCard: { padding: 24 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 },
-  headerTitle: { fontSize: 20, fontWeight: '600', color: '#11181C' },
-  successMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(34,197,94,0.1)', padding: 12, borderRadius: 12, marginBottom: 16 },
-  successText: { fontSize: 13, color: '#22c55e', flex: 1 },
-  errorMessage: { backgroundColor: 'rgba(239,68,68,0.1)', padding: 12, borderRadius: 12, marginBottom: 16 },
-  errorText: { fontSize: 13, color: '#ef4444', textAlign: 'center' },
+  formCard: { padding: 24, borderRadius: 16, backgroundColor: 'rgba(255, 255, 255, 0.8)' },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, gap: 8 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#11181C' },
+  successMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#dcfce7', padding: 12, borderRadius: 8, marginBottom: 16 },
+  successText: { color: '#166534', fontSize: 14 },
+  errorMessage: { backgroundColor: '#fee2e2', padding: 12, borderRadius: 8, marginBottom: 16 },
+  errorText: { color: '#b91c1c', fontSize: 14, textAlign: 'center' },
   inputGroup: { marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: '500', color: '#11181C', marginBottom: 6 },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)', borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.5)', paddingHorizontal: 12 },
+  label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8, paddingHorizontal: 12, backgroundColor: '#f9fafb' },
   inputIcon: { marginRight: 8 },
-  input: { flex: 1, paddingVertical: 12, fontSize: 14, color: '#11181C' },
-  eyeIcon: { padding: 4 },
-  forgotLink: { alignSelf: 'flex-end', marginBottom: 20 },
-  forgotText: { fontSize: 13, color: '#22c55e', fontWeight: '500' },
-   loginButton: { ...Platform.select({ web: { boxShadow: '0px 2px 4px rgba(34,197,94,0.3)' }, default: { shadowColor: '#22c55e', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3 } }), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 12 },
+  input: { flex: 1, height: 48, fontSize: 16, color: '#11181C' },
+  eyeIcon: { padding: 8 },
+  forgotLink: { alignSelf: 'flex-end', marginBottom: 24 },
+  forgotText: { color: '#22c55e', fontSize: 14, fontWeight: '500' },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 24 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#d1d5db' },
+  dividerText: { marginHorizontal: 16, color: '#6b7280', fontSize: 14 },
+  loginButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#22c55e', paddingVertical: 14, borderRadius: 12, gap: 8 },
   loginButtonDisabled: { opacity: 0.7 },
-  loginButtonText: { fontSize: 16, fontWeight: '600', color: 'white' },
-  spinner: { width: 20, height: 20, borderWidth: 2, borderColor: 'white', borderTopColor: 'transparent', borderRadius: 10 },
-  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 24, gap: 12 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
-  dividerText: { fontSize: 12, color: '#9ca3af' },
-  socialRow: { flexDirection: 'row', gap: 12 },
-  socialButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)', borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.5)', paddingVertical: 12 },
+  loginButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  spinner: { alignItems: 'center', justifyContent: 'center' },
+  socialRow: { flexDirection: 'row', justifyContent: 'center', gap: 16 },
+  socialButton: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, borderWidth: 1, borderColor: '#d1d5db', backgroundColor: '#ffffff' },
   socialText: { fontSize: 14, fontWeight: '500', color: '#11181C' },
   signupContainer: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
-  signupText: { fontSize: 14, color: '#687076' },
-  signupLink: { fontSize: 14, fontWeight: '600', color: '#22c55e' },
+  signupText: { color: '#6b7280', fontSize: 14 },
+  signupLink: { color: '#22c55e', fontSize: 14, fontWeight: '600' },
 });

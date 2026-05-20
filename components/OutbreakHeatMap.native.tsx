@@ -5,11 +5,30 @@ import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
+  Platform,
   StyleSheet,
   Text,
   View
 } from 'react-native';
-import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MockOutbreakHeatMap from './MockOutbreakHeatMap';
+
+// react-native-maps is optional in this repo; if it's not installed we render a mock map.
+let MapView: any = null;
+let Heatmap: any = null;
+let Marker: any = null;
+let PROVIDER_GOOGLE: any = null;
+
+if (Platform.OS !== 'web') {
+  try {
+    const RNMaps = require('react-native-maps');
+    MapView = RNMaps.default;
+    Heatmap = RNMaps.Heatmap;
+    Marker = RNMaps.Marker;
+    PROVIDER_GOOGLE = RNMaps.PROVIDER_GOOGLE;
+  } catch {
+    // ignore - we'll render MockOutbreakHeatMap
+  }
+}
 
 import { supabase } from '@/lib/supabase';
 
@@ -109,6 +128,11 @@ export default function OutbreakHeatMap() {
         <Text style={styles.errorText}>{error}</Text>
       </View>
     );
+  }
+
+  // If react-native-maps isn't available, fall back to the mock map.
+  if (!MapView) {
+    return <MockOutbreakHeatMap />;
   }
 
   return (

@@ -3,12 +3,12 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 
 function RootLayoutNav() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isUnlocking } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || isUnlocking) return;
 
     const inAuthGroup = segments[0] === 'login' || segments[0] === 'signup' || segments[0] === 'verify-otp' || segments[0] === 'forgot-password';
 

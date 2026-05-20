@@ -84,7 +84,12 @@ const GRADIO_URL = Platform.select({
 const TREFLE_PROXY_URL =
   'https://dzqiazdlhrngboqmcyvm.supabase.co/functions/v1/trefle-proxy';
 
-export default function FarmLinkPage() {
+import CommunityPage from './community';
+export default function IndexRoute() {
+  return <CommunityPage />;
+}
+
+export function FarmLinkPage() {
   const { user } = useAuth();
   const [isPlantModalVisible, setIsPlantModalVisible] = useState(false);
   const [plantName, setPlantName] = useState('');

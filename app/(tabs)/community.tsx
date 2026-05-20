@@ -1334,7 +1334,7 @@ const CommunityPageContent = () => {
         </View>
 
         <View style={styles.fabContainer}>
-          <TouchableOpacity style={[styles.fab, styles.aiFab]} onPress={() => router.push('/')}>
+          <TouchableOpacity style={[styles.fab, styles.aiFab]} onPress={() => router.push('/ai')}>
             <Ionicons name="sparkles" size={24} color="#fff" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.fab} onPress={() => setShowChatList(true)}>

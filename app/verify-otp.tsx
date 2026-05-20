@@ -51,11 +51,16 @@ export default function VerifyOTPPage() {
       // Save selected role to public.users table
       const { data: { user } } = await supabase.auth.getUser();
       if (user && params.userType) {
+        // VULNERABILITY: The user role is taken directly from a client-side parameter.
+        // A malicious user could change this to 'admin' or another privileged role.
+        // REMEDIATION: Validate the role against an allow-list of non-privileged roles.
+        const allowedRoles = ['farmer', 'retailer', 'extension_officer'];
+        const roleToSet = allowedRoles.includes(params.userType as string) ? (params.userType as string) : 'farmer'; // Default to least privileged
         const { error } = await supabase
           .from('users')
           .upsert({ 
             user_id: user.id, 
-            role: params.userType as string,
+            role: roleToSet,
             username: user.email?.split('@')[0] || ''
           });
         if (error) {

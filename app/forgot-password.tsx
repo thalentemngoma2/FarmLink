@@ -168,8 +168,7 @@ export default function ForgotPasswordPage() {
                   </Animated.View>
                   <Text style={styles.successTitle}>Check Your Email</Text>
                   <Text style={styles.successMessage}>
-                    We've sent a password reset link to{' '}
-                    <Text style={styles.successEmail}>{email}</Text>
+                    If an account with that email exists, we have sent it a password reset link.
                   </Text>
                   <Text style={styles.resendText}>
                     Didn't receive the email? Check your spam folder or{' '}

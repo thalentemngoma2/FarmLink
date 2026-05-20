@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 export interface User {
   id: string;
@@ -16,7 +17,9 @@ export interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  isUnlocking: boolean;
   login: (email: string, password: string) => Promise<void>;
+
   signup: (email: string, password: string, name: string, role?: string, location?: string) => Promise<void>;
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
@@ -34,8 +37,9 @@ const generateOTP = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  // const [session, setSession] = useState<any | null>(null); // unused
   const [isLoading, setIsLoading] = useState(true);
+  const [isUnlocking, setIsUnlocking] = useState(false);
+
 
   // Moved outside useEffect so it can be called immediately after login/signup
   const fetchUserWithRole = async (session: any) => {
@@ -77,12 +81,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Listen to auth state changes from Supabase
   useEffect(() => {
-    let isMounted = true;
+      let isMounted = true;
 
     const init = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
+
         if (error) throw error;
+
+      // App Lock: Require biometrics to resume an existing session
+      if (session && Platform.OS !== 'web') {
+        setIsUnlocking(true);
+        try {
+          const result = await LocalAuthentication.authenticateAsync({
+            promptMessage: 'Unlock FarmLink with Biometrics',
+            disableDeviceFallback: false,
+          });
+
+          if (!result.success) {
+            await supabase.auth.signOut();
+            if (isMounted) setUser(null);
+            return;
+          }
+        } catch {
+          await supabase.auth.signOut();
+          if (isMounted) setUser(null);
+          return;
+        } finally {
+          if (isMounted) setIsUnlocking(false);
+        }
+      }
+
+
+
         if (isMounted) await fetchUserWithRole(session);
       } catch (e: any) {
         if (e.name === 'AbortError' || e.message?.includes('AbortError')) return;
@@ -93,9 +124,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // Fire a lightweight, silent query to wake up the database API
         // while the user is still looking at the app's splash/home screen.
-        supabase.from('users').select('user_id').limit(1)
+void supabase
+          .from('users')
+          .select('user_id')
+          .limit(1)
           .then(() => console.log('Database warm-up complete'))
-          .catch(() => {});
+          .catch(() => undefined);
       }
     };
 
@@ -281,6 +315,8 @@ const signup = async (email: string, password: string, name: string, role?: stri
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+      setUser(null);
+      router.replace('/login');
     } catch (err: any) {
       console.error('Logout error', err);
     } finally {
@@ -306,7 +342,9 @@ const signup = async (email: string, password: string, name: string, role?: stri
   const value: AuthContextType = {
     user,
     isLoading,
+    isUnlocking,
     login,
+
     signup,
     logout,
     forgotPassword,

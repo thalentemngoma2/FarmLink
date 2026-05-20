@@ -132,7 +132,7 @@ export const BottomNav: React.FC = () => {
   const navItems = React.useMemo(() => {
     if (user?.role === 'retailer') {
       return [
-        { icon: 'home-outline', label: 'Home', href: '/community' },
+        { icon: 'home-outline', label: 'Home', href: '/' },
         { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
         { icon: 'people-outline', label: 'Suppliers', href: '/suppliers' },
         { icon: 'person-outline', label: 'Profile', href: '/profile' },
@@ -140,7 +140,7 @@ export const BottomNav: React.FC = () => {
     }
 
     return [
-      { icon: 'home-outline', label: 'Home', href: '/community' },
+      { icon: 'home-outline', label: 'Home', href: '/' },
       { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
       { icon: 'help-buoy-outline', label: 'Support', href: '/support' },
       { icon: 'person-outline', label: 'Profile', href: '/profile' },
