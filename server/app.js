@@ -1,24 +1,57 @@
 require('dotenv').config();
-console.log('SUPABASE_URL:', process.env.SUPABASE_URL);
-console.log('SUPABASE_SERVICE_ROLE_KEY exists?', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
-
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const http = require('http');
+const { Server } = require('socket.io');
 const { createClient } = require('@supabase/supabase-js');
+const winston = require('winston');
+const morgan = require('morgan');
 
+// --------------- Logger setup ---------------
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'logs/combined.log' }),
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      ),
+    }),
+  ],
+});
+
+// Override console.log and console.error to use winston
+console.log = (...args) => logger.info(args.join(' '));
+console.error = (...args) => logger.error(args.join(' '));
+
+console.log('SUPABASE_URL:', process.env.SUPABASE_URL);
+console.log('SUPABASE_SERVICE_ROLE_KEY exists?', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+// --------------- App setup ---------------
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
-const upload = multer({ storage: multer.memoryStorage() });
 
-// Supabase client
+// --------------- Supabase ---------------
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// --------------- Multer ---------------
+const upload = multer({ storage: multer.memoryStorage() });
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
 // -------------------- Helper functions --------------------
 async function uploadFile(fileBuffer, fileName, folder) {
@@ -68,6 +101,110 @@ function requireAuth(req, res, next) {
 }
 
 app.use(authMiddleware);
+
+// ==================== Socket.IO – Private Direct Messaging (E2EE‑ready) ====================
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+});
+
+const userSockets = new Map();
+
+io.on('connection', async (socket) => {
+  const token = socket.handshake.query.token;
+  if (!token) {
+    socket.disconnect(true);
+    return;
+  }
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    socket.disconnect(true);
+    return;
+  }
+
+  const userId = user.id;
+  userSockets.set(userId, socket.id);
+  logger.info(`User ${userId} connected (socket ${socket.id})`);
+
+  socket.on('private-message', async (data) => {
+    const { recipientId, encryptedPayload } = data;
+    if (!recipientId || !encryptedPayload) return;
+
+    try {
+      await supabase.from('messages').insert({
+        sender_id: userId,
+        recipient_id: recipientId,
+        encrypted_content: encryptedPayload,
+        created_at: new Date(),
+      });
+    } catch (err) {
+      logger.error('Failed to save encrypted message:', err);
+    }
+
+    const recipientSocketId = userSockets.get(recipientId);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('private-message', {
+        senderId: userId,
+        encryptedPayload,
+        timestamp: Date.now(),
+      });
+    }
+
+    socket.emit('private-message', {
+      senderId: userId,
+      encryptedPayload,
+      timestamp: Date.now(),
+    });
+  });
+
+  socket.on('typing', (data) => {
+    const recipientSocketId = userSockets.get(data.recipientId);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('typing', { senderId: userId });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    userSockets.delete(userId);
+    logger.info(`User ${userId} disconnected`);
+  });
+});
+
+// ==================== REST endpoint: get chat history ====================
+app.get('/messages/:otherUserId', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Missing token' });
+  const token = authHeader.split(' ')[1];
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !user) return res.status(401).json({ error: 'Invalid token' });
+
+  const { otherUserId } = req.params;
+  const limit = parseInt(req.query.limit) || 50;
+
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .or(`and(sender_id.eq.${user.id},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${user.id})`)
+      .order('created_at', { ascending: true })
+      .limit(limit);
+
+    if (error) throw error;
+
+    const messages = data.map(m => ({
+      id: m.id,
+      senderId: m.sender_id,
+      recipientId: m.recipient_id,
+      encryptedPayload: m.encrypted_content,
+      timestamp: m.created_at,
+    }));
+
+    res.json(messages);
+  } catch (err) {
+    logger.error('Chat history error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ==================== COMMUNITY & POSTS ====================
 app.get('/community-server/src/index', async (req, res) => {
@@ -213,33 +350,30 @@ app.post('/auth-server/src/index/signup', async (req, res) => {
   const { email, password, name, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-  // Validate role - must be one of the allowed values
   const validRoles = ['farmer', 'retailer', 'admin', 'extension_officer'];
   const normalizedRole = ((role || '').trim().toLowerCase());
   if (!validRoles.includes(normalizedRole)) {
     return res.status(400).json({ error: `Invalid role: ${role}. Must be one of: ${validRoles.join(', ')}` });
   }
 
-   try {
-     // Generate a guaranteed globally unique username using UUID
-     const { v4: uuidv4 } = require('uuid');
-     const uniqueSuffix = uuidv4().substring(0, 8);
-     const defaultName = name || `${email.split('@')[0]}_${uniqueSuffix}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-     // Also generate a unique username to prevent collisions from same email prefix
-     const defaultUsername = `${email.split('@')[0]}_${uniqueSuffix}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  try {
+    const { v4: uuidv4 } = require('uuid');
+    const uniqueSuffix = uuidv4().substring(0, 8);
+    const defaultName = name || `${email.split('@')[0]}_${uniqueSuffix}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const defaultUsername = `${email.split('@')[0]}_${uniqueSuffix}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
 
-     const { data, error } = await supabase.auth.signUp({
-       email, password,
-       options: {
-         data: {
-           name: defaultName,
-           username: defaultUsername,
-           role: normalizedRole,
-           location: ''
-         },
-         emailRedirectTo: undefined
-       }
-     });
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: {
+        data: {
+          name: defaultName,
+          username: defaultUsername,
+          role: normalizedRole,
+          location: ''
+        },
+        emailRedirectTo: undefined
+      }
+    });
     if (error) throw error;
     res.status(201).json({ message: 'Verification email sent', user: data.user });
   } catch (err) {
@@ -427,7 +561,7 @@ app.get('/scan-server/src/index', requireAuth, async (req, res) => {
   res.json(data);
 });
 
-// ==================== EXTRA: Trending (public) ====================
+// ==================== EXTRA: Trending ====================
 app.get('/trending', async (req, res) => {
   const { limit = 10 } = req.query;
   const { data, error } = await supabase
@@ -449,7 +583,6 @@ app.get('/trending', async (req, res) => {
 });
 
 // ==================== TENDER MARKETPLACE ====================
-
 async function getUserRole(userId) {
   const { data, error } = await supabase.from('users').select('role').eq('user_id', userId).single();
   if (error || !data) return null;
@@ -774,9 +907,7 @@ app.get('/tender-messages/:tenderId', requireAuth, async (req, res) => {
 });
 
 // ==================== EXPERT REQUESTS ====================
-
 app.get('/experts', async (req, res) => {
-  // List all available extension officers with their profiles
   const { data: experts, error } = await supabase
     .from('users')
     .select(`
@@ -820,12 +951,10 @@ app.post('/expert-requests', requireAuth, async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Auto-assign to an available expert if any exist
   try {
     const { data: assignResult } = await supabase.rpc('assign_request_to_expert', {
       request_uuid: data.request_id
     });
-    // If an expert was assigned, refresh the returned data with full join
     if (assignResult) {
       const { data: updated } = await supabase
         .from('expert_requests')
@@ -839,7 +968,6 @@ app.post('/expert-requests', requireAuth, async (req, res) => {
       return res.status(201).json({ success: true, request: updated });
     }
   } catch (assignErr) {
-    // Auto-assignment failed, request remains pending - that's fine
     console.log('Auto-assignment skipped:', assignErr.message);
   }
 
@@ -860,11 +988,9 @@ app.get('/expert-requests', requireAuth, async (req, res) => {
   if (role === 'farmer') {
     query = query.eq('farmer_id', req.user.id);
   } else if (role === 'extension_officer') {
-    // Extension officers can view all requests
   } else if (role !== 'admin') {
     return res.status(403).json({ error: 'Not authorized' });
   }
-  // admin gets all
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
@@ -917,7 +1043,6 @@ app.get('/expert-requests/:id', requireAuth, async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
-  // Authorization: only farmer (owner), assigned expert, or admin can view
   const isOwner = data.farmer_id === req.user.id;
   const isAssignedExpert = data.expert_id === req.user.id;
   const isAdmin = role === 'admin';
@@ -962,12 +1087,10 @@ app.put('/expert-requests/:id/status', requireAuth, async (req, res) => {
   const { status, response } = req.body;
   const role = await getUserRole(req.user.id);
 
-  // Validate status
   if (status && !['pending', 'assigned', 'in_progress', 'resolved', 'closed'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
-  // Get current request
   const { data: request, error: fetchErr } = await supabase
     .from('expert_requests')
     .select('*')
@@ -981,7 +1104,6 @@ app.put('/expert-requests/:id/status', requireAuth, async (req, res) => {
     return res.status(500).json({ error: fetchErr.message });
   }
 
-  // Authorization: only assigned expert or admin can update status/response
   const isAssignedExpert = request.expert_id === req.user.id;
   const isAdmin = role === 'admin';
   if (!isAssignedExpert && !isAdmin) {
@@ -1015,7 +1137,6 @@ app.post('/expert-requests/:id/messages', requireAuth, async (req, res) => {
   const { content } = req.body;
   if (!content) return res.status(400).json({ error: 'Message content is required' });
 
-  // Verify requester is participant
   const { data: request, error: fetchErr } = await supabase
     .from('expert_requests')
     .select('farmer_id, expert_id')
@@ -1032,7 +1153,6 @@ app.post('/expert-requests/:id/messages', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'Only the farmer or assigned expert can send messages' });
   }
 
-  // If request is in a terminal state, disallow new messages
   if (request.status === 'closed') {
     return res.status(400).json({ error: 'Cannot send messages to a closed request' });
   }
@@ -1055,7 +1175,6 @@ app.post('/expert-requests/:id/messages', requireAuth, async (req, res) => {
 app.get('/expert-requests/:id/messages', requireAuth, async (req, res) => {
   const { id } = req.params;
 
-  // Verify requester is participant
   const { data: request, error: fetchErr } = await supabase
     .from('expert_requests')
     .select('farmer_id, expert_id')
@@ -1104,7 +1223,6 @@ app.get('/expert-requests/:id/messages', requireAuth, async (req, res) => {
 app.delete('/expert-requests/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
 
-  // Get request to check ownership and status
   const { data: request, error: fetchErr } = await supabase
     .from('expert_requests')
     .select('farmer_id, status')
@@ -1115,7 +1233,6 @@ app.delete('/expert-requests/:id', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'Request not found' });
   }
 
-  // Only farmer owner can delete, and only if pending or assigned (no messages/responses yet)
   if (request.farmer_id !== req.user.id) {
     return res.status(403).json({ error: 'Only the farmer who created this request can delete it' });
   }
@@ -1133,8 +1250,15 @@ app.delete('/expert-requests/:id', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-// ==================== START SERVER ====================
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`FarmLink main server running on port ${PORT}`);
+// ==================== Global error handlers ====================
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught Exception:', err);
 });
- 
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// ==================== START SERVER ====================
+server.listen(PORT, '0.0.0.0', () => {
+  logger.info(`🚀 FarmLink server running on port ${PORT} (HTTP + WebSocket)`);
+});

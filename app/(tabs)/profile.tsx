@@ -3,7 +3,7 @@ import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -70,7 +70,7 @@ const achievementsList = [
   { id: 'farming_expert', icon: 'leaf-outline', label: 'Farming Expert' },
 ];
 
-export default function ProfilePage() {
+export function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
@@ -658,20 +658,10 @@ const styles = StyleSheet.create({
   avatarImage: { width: 80, height: 80, borderRadius: 40 },
   avatarGradient: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 32, fontWeight: 'bold', color: 'white' },
-  editAvatar: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'white',
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Platform.select({
-      web: { boxShadow: '0px 2px 2px rgba(0,0,0,0.1)' },
+  editAvatar: { position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center',
+    ...Platform.select({ web: { boxShadow: '0px 2px 2px rgba(0,0,0,0.1)' },
       default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-    }),
+    }), 
   },
   profileInfo: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' },

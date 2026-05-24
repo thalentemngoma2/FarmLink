@@ -3,19 +3,134 @@ const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const axios = require('axios');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3006;
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Notification server URL (to send notifications)
+// Notification server URL
 const NOTIFICATION_SERVER = process.env.NOTIFICATION_SERVER || 'http://localhost:3005';
 
 app.use(cors());
 app.use(express.json());
+
+// -------------------- Socket.IO – Private Direct Messaging --------------------
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+});
+
+// Map userId -> socket.id for private message routing
+const userSockets = new Map();
+
+io.on('connection', async (socket) => {
+  const token = socket.handshake.query.token;
+  if (!token) {
+    socket.disconnect(true);
+    return;
+  }
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    socket.disconnect(true);
+    return;
+  }
+
+  const userId = user.id;
+  userSockets.set(userId, socket.id);
+
+  console.log(`User ${userId} connected (community server)`);
+
+  // Listen for private messages
+  socket.on('private-message', async (data) => {
+    const { recipientId, encryptedPayload } = data; // encryptedPayload is the E2EE ciphertext
+    if (!recipientId || !encryptedPayload) return;
+
+    // Save the encrypted message to Supabase for history
+    try {
+      await supabase.from('messages').insert({
+        sender_id: userId,
+        recipient_id: recipientId,
+        encrypted_content: encryptedPayload, // store the encrypted blob
+        created_at: new Date(),
+      });
+    } catch (err) {
+      console.error('Failed to save encrypted message:', err);
+    }
+
+    // Relay the encrypted payload to the recipient if they are connected
+    const recipientSocketId = userSockets.get(recipientId);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('private-message', {
+        senderId: userId,
+        encryptedPayload, // forward encrypted data unchanged
+        timestamp: Date.now(),
+      });
+    }
+
+    // Also send back to sender for immediate UI update (client should decrypt locally)
+    socket.emit('private-message', {
+      senderId: userId,
+      encryptedPayload,
+      timestamp: Date.now(),
+    });
+  });
+
+  // Optional: typing indicators
+  socket.on('typing', (data) => {
+    const recipientSocketId = userSockets.get(data.recipientId);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('typing', { senderId: userId });
+    }
+  });
+
+  // Disconnect cleanup
+  socket.on('disconnect', () => {
+    userSockets.delete(userId);
+    console.log(`User ${userId} disconnected`);
+  });
+});
+
+// -------------------- REST endpoints for chat history --------------------
+// GET /messages/:otherUserId?limit=50 – retrieve encrypted messages between current user and another user
+app.get('/messages/:otherUserId', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Missing token' });
+  const token = authHeader.split(' ')[1];
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !user) return res.status(401).json({ error: 'Invalid token' });
+
+  const { otherUserId } = req.params;
+  const limit = parseInt(req.query.limit) || 50;
+
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .or(`and(sender_id.eq.${user.id},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${user.id})`)
+      .order('created_at', { ascending: true })
+      .limit(limit);
+
+    if (error) throw error;
+
+    const messages = data.map(m => ({
+      id: m.id,
+      senderId: m.sender_id,
+      recipientId: m.recipient_id,
+      encryptedPayload: m.encrypted_content, // clients must decrypt
+      timestamp: m.created_at,
+    }));
+
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // -------------------- Helper: Create notification --------------------
 async function createNotification(userId, type, title, message, actionUrl = null) {
@@ -32,8 +147,7 @@ async function createNotification(userId, type, title, message, actionUrl = null
   }
 }
 
-// -------------------- Posts --------------------
-// GET /posts?category=All&limit=20
+// -------------------- Posts (existing endpoints, unchanged) --------------------
 app.get('/posts', async (req, res) => {
   const { category = 'All', limit = 20 } = req.query;
   try {
@@ -49,7 +163,6 @@ app.get('/posts', async (req, res) => {
     if (category !== 'All') query = query.eq('category', category);
     const { data, error } = await query;
     if (error) throw error;
-    // Transform to frontend Discussion format
     const discussions = data.map(post => ({
       id: post.id,
       avatar: post.profiles?.avatar || post.profiles?.full_name?.charAt(0).toUpperCase() || 'U',
@@ -64,8 +177,8 @@ app.get('/posts', async (req, res) => {
       imageUri: post.media_urls?.[0] || null,
       videoUri: post.media_urls?.[0] || null,
       mediaType: post.media_type,
-      likedByUser: false, // will be determined by user like check later
-      comments: [] // comments fetched separately
+      likedByUser: false,
+      comments: []
     }));
     res.json(discussions);
   } catch (err) {
@@ -73,7 +186,6 @@ app.get('/posts', async (req, res) => {
   }
 });
 
-// GET /posts/:id/comments
 app.get('/posts/:id/comments', async (req, res) => {
   const { id } = req.params;
   try {
@@ -87,7 +199,6 @@ app.get('/posts/:id/comments', async (req, res) => {
       .eq('post_id', id)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    // Transform to frontend Comment structure
     const comments = data.map(c => ({
       id: c.id,
       username: c.profiles?.full_name || 'Anonymous',
@@ -112,7 +223,6 @@ app.get('/posts/:id/comments', async (req, res) => {
   }
 });
 
-// POST /posts - create a new post
 app.post('/posts', async (req, res) => {
   const { userId, title, preview, category, mediaUrls, mediaType } = req.body;
   if (!userId || !title || !preview) return res.status(400).json({ error: 'Missing required fields' });
@@ -131,20 +241,17 @@ app.post('/posts', async (req, res) => {
       .select()
       .single();
     if (error) throw error;
-    // Notify followers? (optional)
     res.status(201).json({ success: true, post: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /posts/:id/like - toggle like
 app.post('/posts/:id/like', async (req, res) => {
   const { id } = req.params;
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'User ID required' });
   try {
-    // Check if already liked
     const { data: existing } = await supabase
       .from('post_likes')
       .select('id')
@@ -152,14 +259,11 @@ app.post('/posts/:id/like', async (req, res) => {
       .eq('user_id', userId)
       .single();
     if (existing) {
-      // Unlike
       await supabase.from('post_likes').delete().eq('id', existing.id);
       await supabase.rpc('decrement_post_likes', { post_id: id });
     } else {
-      // Like
       await supabase.from('post_likes').insert({ post_id: id, user_id: userId });
       await supabase.rpc('increment_post_likes', { post_id: id });
-      // Send notification to post author
       const { data: post } = await supabase.from('posts').select('user_id').eq('id', id).single();
       if (post && post.user_id !== userId) {
         await createNotification(post.user_id, 'like', 'Someone liked your post', `Your post "${post.title}" received a like.`, `/community/post/${id}`);
@@ -171,7 +275,6 @@ app.post('/posts/:id/like', async (req, res) => {
   }
 });
 
-// POST /comments - add a comment
 app.post('/comments', async (req, res) => {
   const { postId, userId, content, parentCommentId } = req.body;
   if (!postId || !userId || !content) return res.status(400).json({ error: 'Missing fields' });
@@ -188,9 +291,7 @@ app.post('/comments', async (req, res) => {
       .select()
       .single();
     if (error) throw error;
-    // Increment replies count on post
     await supabase.rpc('increment_post_replies', { post_id: postId });
-    // Send notification to post author (if not self)
     const { data: post } = await supabase.from('posts').select('user_id, title').eq('id', postId).single();
     if (post && post.user_id !== userId) {
       await createNotification(post.user_id, 'reply', 'New comment on your post', `${userId} commented on "${post.title}"`, `/community/post/${postId}`);
@@ -201,7 +302,7 @@ app.post('/comments', async (req, res) => {
   }
 });
 
-// Helper: format relative time
+// -------------------- Helper: format relative time --------------------
 function formatRelativeTime(dateStr) {
   const date = new Date(dateStr);
   const now = new Date();
@@ -215,6 +316,7 @@ function formatRelativeTime(dateStr) {
   return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
 }
 
-app.listen(PORT, () => {
-  console.log(`Community server running on port ${PORT}`);
+// -------------------- Start server --------------------
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Community server (with messaging) running on port ${PORT}`);
 });

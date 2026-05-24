@@ -132,7 +132,7 @@ export const BottomNav: React.FC = () => {
   const navItems = React.useMemo(() => {
     if (user?.role === 'retailer') {
       return [
-        { icon: 'home-outline', label: 'Home', href: '/community' },
+        { icon: 'home-outline', label: 'Home', href: '/index' },
         { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
         { icon: 'people-outline', label: 'Suppliers', href: '/suppliers' },
         { icon: 'person-outline', label: 'Profile', href: '/profile' },
@@ -140,7 +140,7 @@ export const BottomNav: React.FC = () => {
     }
 
     return [
-      { icon: 'home-outline', label: 'Home', href: '/community' },
+      { icon: 'home-outline', label: 'Home', href: '/index' },
       { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
       { icon: 'help-buoy-outline', label: 'Support', href: '/support' },
       { icon: 'person-outline', label: 'Profile', href: '/profile' },
@@ -242,59 +242,13 @@ useEffect(() => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  navBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 28,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginHorizontal: 16,
-    elevation: 8,
-  },
-  tabButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 24,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
+  container: { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 50, alignItems: 'center', justifyContent: 'center', },
+  navBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: 'rgba(255, 255, 255, 0.7)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.3)', borderRadius: 28, paddingVertical: 8, paddingHorizontal: 12, marginHorizontal: 16, elevation: 8, },
+  tabButton: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 24, paddingVertical: 8, paddingHorizontal: 12, },
   activeTab: {},
-  tabInner: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabInnerText: {
-    marginTop: 2,
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: '#9ca3af',
-  },
-  activeLabel: {
-    color: '#22c55e',
-  },
-  activeIndicator: {
-    position: 'absolute',
-    bottom: -6,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#22c55e',
-    alignSelf: 'center',
-  },
+  tabInner: { alignItems: 'center', justifyContent: 'center', },
+  tabInnerText: { marginTop: 2, },
+  label: { fontSize: 10, fontWeight: '500', color: '#9ca3af', },
+  activeLabel: { color: '#22c55e', },
+  activeIndicator: { position: 'absolute', bottom: -6, width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e', alignSelf: 'center', },
 });
