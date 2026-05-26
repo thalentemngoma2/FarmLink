@@ -1,25 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-<<<<<<< HEAD
-import React, { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-=======
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
->>>>>>> gozilethu/farmlink-Mbutho
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
-<<<<<<< HEAD
-  FlatList,
-=======
->>>>>>> gozilethu/farmlink-Mbutho
   Text,
   TextInput,
   TouchableOpacity,
@@ -33,11 +22,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 
-<<<<<<< HEAD
-export default function SupportPage() {
-=======
 export function SupportPage() {
->>>>>>> gozilethu/farmlink-Mbutho
   const { user } = useAuth();
   
   const [supportTitle, setSupportTitle] = useState('');

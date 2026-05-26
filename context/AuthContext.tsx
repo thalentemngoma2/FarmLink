@@ -1,15 +1,10 @@
-<<<<<<< HEAD
 import { supabase } from "@/lib/supabase";
+import * as Linking from "expo-linking";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
-=======
-import { supabase } from '@/lib/supabase';
-import { router } from 'expo-router';
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
->>>>>>> gozilethu/farmlink-Mbutho
 
 export interface User {
   id: string;
@@ -27,7 +22,7 @@ interface AuthContextType {
   isUnlocking: boolean;
 
   login: (email: string, password: string) => Promise<void>;
-<<<<<<< HEAD
+  loginWithGoogle: () => Promise<void>;
   signup: (
     email: string,
     password: string,
@@ -36,9 +31,6 @@ interface AuthContextType {
     location?: string,
   ) => Promise<void>;
 
-=======
-  signup: (email: string, password: string, name: string, role?: string, location?: string) => Promise<void>;
->>>>>>> gozilethu/farmlink-Mbutho
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
@@ -48,18 +40,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Generate a 6-digit OTP
-const generateOTP = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+WebBrowser.maybeCompleteAuthSession();
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [user, setUser] = useState<User | null>(null);
-<<<<<<< HEAD
-=======
-  // const [session, setSession] = useState<any | null>(null); // unused
->>>>>>> gozilethu/farmlink-Mbutho
   const [isLoading, setIsLoading] = useState(true);
   const [isUnlocking, setIsUnlocking] = useState(false);
 
@@ -101,54 +87,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-<<<<<<< HEAD
-=======
-  // Moved outside useEffect so it can be called immediately after login/signup
-  const fetchUserWithRole = async (session: any) => {
-    if (!session?.user) {
-      setUser(null);
-      return;
-    }
-
-    try {
-      // Fetch role from public.users table
-      const { data: userData, error } = await supabase
-        .from('users')
-        .select('role')
-        .eq('user_id', session.user.id)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      setUser({
-        id: session.user.id,
-        email: session.user.email!,
-        name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
-        avatar: session.user.user_metadata?.avatar,
-        role: userData?.role,
-      });
-    } catch (e: any) {
-      if (e.name === 'AbortError' || e.message?.includes('AbortError')) return;
-      // Avoid crashing app startup if DB/network is unreachable
-      console.error('Failed to fetch user role', e);
-      setUser({
-        id: session.user.id,
-        email: session.user.email!,
-        name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
-        avatar: session.user.user_metadata?.avatar,
-        role: undefined,
-      });
-    }
-  };
-
-  // Listen to auth state changes from Supabase
->>>>>>> gozilethu/farmlink-Mbutho
   useEffect(() => {
     let isMounted = true;
 
     const init = async () => {
       try {
-<<<<<<< HEAD
         const {
           data: { session },
           error,
@@ -185,38 +128,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Failed to get Supabase session", e);
         if (isMounted) setUser(null);
       } finally {
-        if (isMounted) setIsLoading(false);        // Warm up DB API silently
+        if (isMounted) setIsLoading(false); // Warm up DB API silently
         try {
           const { error: warmUpError } = await supabase
-            .from('users')
-            .select('user_id')
+            .from("users")
+            .select("user_id")
             .limit(1);
-          if (warmUpError) console.warn('Database warm-up failed', warmUpError);
+          if (warmUpError) console.warn("Database warm-up failed", warmUpError);
         } catch {
           // ignore
         }
-=======
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        if (isMounted) await fetchUserWithRole(session);
-      } catch (e: any) {
-        if (e.name === 'AbortError' || e.message?.includes('AbortError')) return;
-        console.error('Failed to get Supabase session', e);
-        if (isMounted) setUser(null);
-      } finally {
-        if (isMounted) setIsLoading(false);
-        
-        // Fire a lightweight, silent query to wake up the database API
-        // while the user is still looking at the app's splash/home screen.
-        supabase.from('users').select('user_id').limit(1)
-          .then(() => console.log('Database warm-up complete'))
-          .catch(() => {});
->>>>>>> gozilethu/farmlink-Mbutho
       }
     };
 
     init();
-<<<<<<< HEAD
 
     const {
       data: { subscription },
@@ -249,54 +174,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     if (Platform.OS === "web" && typeof window !== "undefined") {
       window.addEventListener("keydown", handleKeyDown);
-=======
-
-    // Listen for changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (isMounted) {
-        try {
-          await fetchUserWithRole(session);
-        } catch (e) {
-          console.error('Auth state change handling failed', e);
-        } finally {
-          setIsLoading(false);
-        }
-      }
-    });
-
-    // Global keyboard listener for force logout (Ctrl + Shift + O)
-    const handleKeyDown = async (e: any) => {
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'o') {
-        e.preventDefault();
-        setIsLoading(true);
-        try {
-          // Forcibly clear local session tokens
-          await supabase.auth.signOut();
-          if (isMounted) setUser(null);
-          router.replace('/login');
-        } catch (err) {
-          console.error('Force logout error', err);
-        } finally {
-          if (isMounted) setIsLoading(false);
-        }
-      }
-    };
-
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.addEventListener('keydown', handleKeyDown);
->>>>>>> gozilethu/farmlink-Mbutho
     }
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
-<<<<<<< HEAD
       if (Platform.OS === "web" && typeof window !== "undefined") {
         window.removeEventListener("keydown", handleKeyDown);
-=======
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.removeEventListener('keydown', handleKeyDown);
->>>>>>> gozilethu/farmlink-Mbutho
       }
     };
   }, []);
@@ -304,18 +188,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-<<<<<<< HEAD
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
       if (error) throw error;
-=======
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      
-      // Update state immediately so navigation doesn't see a null user
->>>>>>> gozilethu/farmlink-Mbutho
       if (data.session) {
         await fetchUserWithRole(data.session);
       }
@@ -326,7 +203,74 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-<<<<<<< HEAD
+  const loginWithGoogle = async () => {
+    setIsLoading(true);
+    try {
+      const redirectTo = Linking.createURL("/");
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo,
+          skipBrowserRedirect: Platform.OS !== "web",
+        },
+      });
+
+      if (error) throw error;
+
+      if (Platform.OS !== "web" && data?.url) {
+        const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+        if (res.type === "success") {
+          const { url } = res;
+          const extractParam = (u: string, param: string) => {
+            const regex = new RegExp(`[#?&]${param}=([^&]+)`);
+            const match = u.match(regex);
+            return match ? decodeURIComponent(match[1]) : null;
+          };
+
+          const access_token = extractParam(url, "access_token");
+          const refresh_token = extractParam(url, "refresh_token");
+
+          if (access_token && refresh_token) {
+            const { data: sessionData, error: sessionError } =
+              await supabase.auth.setSession({
+                access_token,
+                refresh_token,
+              });
+            if (sessionError) throw sessionError;
+
+            if (sessionData.session) {
+              const { user: supaUser } = sessionData.session;
+              const { data: existing } = await supabase
+                .from("users")
+                .select("user_id")
+                .eq("user_id", supaUser.id)
+                .maybeSingle();
+
+              if (!existing) {
+                await supabase.from("users").insert({
+                  user_id: supaUser.id,
+                  username:
+                    supaUser.user_metadata?.full_name ||
+                    supaUser.email?.split("@")[0] ||
+                    "User",
+                  email: supaUser.email,
+                  role: "farmer",
+                });
+              }
+              await fetchUserWithRole(sessionData.session);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      throw new Error(err.message || "Google login failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const signup = async (
     email: string,
     password: string,
@@ -353,87 +297,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         .replace(/[^a-z0-9_]/g, "_");
 
       // 1) Create user in Supabase Auth
-=======
-const signup = async (email: string, password: string, name: string, role?: string, location?: string) => {
-   setIsLoading(true);
-   try {
-     // Normalize and validate role
-     const validRoles = ['farmer', 'retailer', 'admin', 'extension_officer'];
-     const normalizedRole = (role || 'farmer').trim().toLowerCase();
-     if (!validRoles.includes(normalizedRole)) {
-       throw new Error(`Invalid role: ${role}. Must be one of: ${validRoles.join(', ')}`);
-     }
-
-     // Generate a unique username to prevent collisions (e.g., same email prefix)
-     const timestamp = Date.now();
-     const randomPart = Math.random().toString(36).substring(2, 10);
-     const username = `${email.split('@')[0]}_${timestamp}_${randomPart}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-
-     // 1. Create user in Supabase Auth
->>>>>>> gozilethu/farmlink-Mbutho
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-<<<<<<< HEAD
             name,
+            full_name: name,
             username,
             role: normalizedRole,
             location: location || "",
+            avatar: "",
           },
-          emailRedirectTo: undefined,
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Catch Supabase SMTP rate limit errors
+        if (
+          error.message?.includes("Error sending confirmation") ||
+          error.status === 500
+        ) {
+          throw new Error(
+            "Email sending limit reached (max 3 per hour). Please wait an hour, or temporarily disable 'Confirm Email' in Supabase to continue testing.",
+          );
+        }
+        // Catch Database Trigger errors
+        if (error.message?.includes("Database error")) {
+          throw new Error(
+            "Database trigger failed. Please check your Supabase Auth logs.",
+          );
+        }
+        throw error;
+      }
       if (!data.user) throw new Error("Signup failed");
 
-      // 2) Generate OTP + store
-      const otp = generateOTP();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-      const { error: dbError } = await supabase
-        .from("otp_verifications")
-        .insert({ email, otp_code: otp, expires_at: expiresAt });
-
-      if (dbError) throw dbError;
-
-      // 3) Send OTP
-      const { error: invokeError } = await supabase.functions.invoke(
-        "send-otp-email",
-        {
-          body: { email, otp },
-        },
-      );
-
-      if (invokeError) throw new Error("Failed to send OTP email");
+      if (data.session) {
+        console.warn(
+          "WARNING: Supabase 'Confirm Email' is disabled. User was automatically logged in, bypassing OTP.",
+        );
+      }
     } catch (err: any) {
       throw new Error(err.message || "Signup failed");
     } finally {
       setIsLoading(false);
     }
   };
-=======
-            name: name || username,
-            username,
-            role: normalizedRole,
-            location: location || ''
-          },
-          emailRedirectTo: undefined
-        },
-      });
-        if (error) throw error;
-        if (!data.user) throw new Error('Signup failed');
-
-        console.log('Signup success - user created with role:', normalizedRole);
-   } catch (err: any) {
-     throw new Error(err.message || 'Signup failed');
-   } finally {
-     setIsLoading(false);
-   }
- };
->>>>>>> gozilethu/farmlink-Mbutho
 
   const verifyOTP = async (email: string, token: string) => {
     setIsLoading(true);
@@ -441,15 +350,11 @@ const signup = async (email: string, password: string, name: string, role?: stri
       const { data, error } = await supabase.auth.verifyOtp({
         email,
         token,
-        type: "email",
+        type: "signup",
       });
 
       if (error) throw error;
-<<<<<<< HEAD
 
-=======
-      
->>>>>>> gozilethu/farmlink-Mbutho
       if (data.session) {
         await fetchUserWithRole(data.session);
       }
@@ -546,6 +451,7 @@ const signup = async (email: string, password: string, name: string, role?: stri
     isLoading,
     isUnlocking,
     login,
+    loginWithGoogle,
     signup,
     logout,
     forgotPassword,

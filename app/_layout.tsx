@@ -1,7 +1,15 @@
-<<<<<<< HEAD
-import { AuthProvider, useAuth } from '@/context/AuthContext';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import { useEffect } from 'react';
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { useEffect } from "react";
+import {
+    configureReanimatedLogger,
+    ReanimatedLogLevel,
+} from "react-native-reanimated";
+
+configureReanimatedLogger({
+  level: ReanimatedLogLevel.warn,
+  strict: false,
+});
 
 function RootLayoutNav() {
   const { user, isLoading, isUnlocking } = useAuth();
@@ -11,12 +19,16 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading || isUnlocking) return;
 
-    const inAuthGroup = segments[0] === 'login' || segments[0] === 'signup' || segments[0] === 'verify-otp' || segments[0] === 'forgot-password';
+    const inAuthGroup =
+      segments[0] === "login" ||
+      segments[0] === "signup" ||
+      segments[0] === "verify-otp" ||
+      segments[0] === "forgot-password";
 
     if (!user && !inAuthGroup) {
-      router.replace('/login');
+      router.replace("/login");
     } else if (user && inAuthGroup) {
-      router.replace('/');
+      router.replace("/");
     }
   }, [user, isLoading, segments]);
 
@@ -32,16 +44,6 @@ function RootLayoutNav() {
     </Stack>
   );
 }
-=======
-import { AuthProvider } from '@/context/AuthContext';
-import { Stack } from 'expo-router';
-import { configureReanimatedLogger, ReanimatedLogLevel } from 'react-native-reanimated';
-
-configureReanimatedLogger({
-  level: ReanimatedLogLevel.warn,
-  strict: false,
-});
->>>>>>> remotes/gozilethu/farmlink-Mbutho
 
 export default function RootLayout() {
   return (

@@ -38,11 +38,6 @@ const userTypes = [
     label: "Retailer",
     description: "I buy and sell farm produce",
   },
-  {
-    id: "extension_officer",
-    label: "Extension Officer",
-    description: "I provide agricultural advisory services",
-  },
 ];
 
 export default function SignupPage() {
@@ -67,7 +62,6 @@ export default function SignupPage() {
   const [error, setError] = useState("");
 
   const updateFormData = (field: string, value: string | boolean) => {
-    if (typeof value === "string") value = value.trim();
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -104,15 +98,17 @@ export default function SignupPage() {
     try {
       // AuthContext.signup accepts: (email, password, name, role?, location?)
       await signup(
-        formData.email,
+        formData.email.trim(),
         formData.password,
-        formData.fullName,
+        formData.fullName.trim(),
         formData.userType,
-        formData.location,
+        formData.location.trim(),
       );
 
       // After signup, verify OTP
-      router.push(`/verify-otp?email=${encodeURIComponent(formData.email)}`);
+      router.push(
+        `/verify-otp?email=${encodeURIComponent(formData.email.trim())}&userType=${encodeURIComponent(formData.userType)}`,
+      );
     } catch (err: any) {
       setError(err.message || "Signup failed. Please try again.");
     } finally {

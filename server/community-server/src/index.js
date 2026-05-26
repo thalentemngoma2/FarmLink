@@ -7,21 +7,14 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 const app = express();
-<<<<<<< HEAD
-=======
 const server = http.createServer(app);
->>>>>>> gozilethu/farmlink-Mbutho
 const PORT = process.env.PORT || 3006;
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-<<<<<<< HEAD
-// Notification server URL (to send notifications)
-=======
 // Notification server URL
->>>>>>> gozilethu/farmlink-Mbutho
 const NOTIFICATION_SERVER = process.env.NOTIFICATION_SERVER || 'http://localhost:3005';
 
 app.use(cors());

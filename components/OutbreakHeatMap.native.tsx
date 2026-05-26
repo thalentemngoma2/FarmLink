@@ -1,20 +1,18 @@
 // components/OutbreakHeatMap.tsx
-import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
-<<<<<<< HEAD
   Platform,
-=======
->>>>>>> remotes/gozilethu/farmlink-Mbutho
   StyleSheet,
   Text,
-  View
-} from 'react-native';
-<<<<<<< HEAD
-import MockOutbreakHeatMap from './MockOutbreakHeatMap';
+  View,
+} from "react-native";
+import MockOutbreakHeatMap from "./MockOutbreakHeatMap";
+
+import { supabase } from "@/lib/supabase";
 
 // react-native-maps is optional in this repo; if it's not installed we render a mock map.
 let MapView: any = null;
@@ -22,9 +20,9 @@ let Heatmap: any = null;
 let Marker: any = null;
 let PROVIDER_GOOGLE: any = null;
 
-if (Platform.OS !== 'web') {
+if (Platform.OS !== "web") {
   try {
-    const RNMaps = require('react-native-maps');
+    const RNMaps = require("react-native-maps");
     MapView = RNMaps.default;
     Heatmap = RNMaps.Heatmap;
     Marker = RNMaps.Marker;
@@ -33,11 +31,6 @@ if (Platform.OS !== 'web') {
     // ignore - we'll render MockOutbreakHeatMap
   }
 }
-=======
-import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
->>>>>>> remotes/gozilethu/farmlink-Mbutho
-
-import { supabase } from '@/lib/supabase';
 
 // Types
 interface OutbreakPoint {
@@ -52,9 +45,9 @@ interface OutbreakPoint {
 
 // Helper: color based on severity
 const getSeverityColor = (severity: number): string => {
-  if (severity >= 4) return '#ef4444'; // red
-  if (severity >= 2) return '#f97316'; // orange
-  return '#eab308'; // yellow
+  if (severity >= 4) return "#ef4444"; // red
+  if (severity >= 2) return "#f97316"; // orange
+  return "#eab308"; // yellow
 };
 
 // Helper: radius based on severity (for marker size)
@@ -82,26 +75,30 @@ export default function OutbreakHeatMap() {
     try {
       // Adjust table name to your actual Supabase table (e.g., 'outbreaks')
       const { data, error } = await supabase
-        .from('outbreak_reports')
-        .select('id, disease_name, latitude, longitude, severity, created_at, location_name')
-        .eq('status', 'approved') // only approved reports
-        .order('created_at', { ascending: false });
+        .from("outbreak_reports")
+        .select(
+          "id, disease_name, latitude, longitude, animal_type, created_at",
+        )
+        .eq("status", "verified") // only verified reports
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
 
       const formatted: OutbreakPoint[] = (data || []).map((item: any) => ({
         id: item.id,
-        disease_name: item.disease_name,
-        latitude: item.latitude,
-        longitude: item.longitude,
-        severity: item.severity || 1,
+        disease_name: item.disease_name || "Unknown Disease",
+        latitude: item.latitude || 0,
+        longitude: item.longitude || 0,
+        severity: 4, // Default high severity for heatmap points
         reported_at: item.created_at,
-        location_name: item.location_name,
+        location_name: item.animal_type
+          ? `Animal: ${item.animal_type}`
+          : "Outbreak Area",
       }));
       setOutbreaks(formatted);
     } catch (err: any) {
-      console.error('Failed to fetch outbreaks', err);
-      setError('Could not load outbreak data');
+      console.error("Failed to fetch outbreaks", err);
+      setError("Could not load outbreak data");
     } finally {
       setLoading(false);
     }
@@ -110,12 +107,12 @@ export default function OutbreakHeatMap() {
   useFocusEffect(
     useCallback(() => {
       fetchOutbreaks();
-    }, [])
+    }, []),
   );
 
   // Build heatmap points (for Heatmap layer)
   // Heatmap expects an array of { latitude, longitude, weight }
-  const heatmapPoints = outbreaks.map(point => ({
+  const heatmapPoints = outbreaks.map((point) => ({
     latitude: point.latitude,
     longitude: point.longitude,
     weight: point.severity / 5, // normalize 0-1
@@ -137,14 +134,11 @@ export default function OutbreakHeatMap() {
     );
   }
 
-<<<<<<< HEAD
   // If react-native-maps isn't available, fall back to the mock map.
   if (!MapView) {
     return <MockOutbreakHeatMap />;
   }
 
-=======
->>>>>>> remotes/gozilethu/farmlink-Mbutho
   return (
     <View style={styles.container}>
       <MapView
@@ -162,7 +156,7 @@ export default function OutbreakHeatMap() {
             radius={40}
             opacity={0.7}
             gradient={{
-              colors: ['#fef08a', '#f97316', '#ef4444'],
+              colors: ["#fef08a", "#f97316", "#ef4444"],
               startPoints: [0.1, 0.5, 0.9],
               colorMapSize: 256,
             }}
@@ -170,7 +164,7 @@ export default function OutbreakHeatMap() {
         )}
 
         {/* Markers with disease labels */}
-        {outbreaks.map(point => (
+        {outbreaks.map((point) => (
           <Marker
             key={point.id}
             coordinate={{
@@ -189,12 +183,14 @@ export default function OutbreakHeatMap() {
                 borderRadius: getMarkerRadius(point.severity) / 2,
                 backgroundColor: getSeverityColor(point.severity),
                 borderWidth: 2,
-                borderColor: 'white',
-                alignItems: 'center',
-                justifyContent: 'center',
+                borderColor: "white",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+              <Text
+                style={{ color: "white", fontSize: 10, fontWeight: "bold" }}
+              >
                 {point.disease_name.charAt(0)}
               </Text>
             </View>
@@ -215,37 +211,37 @@ export default function OutbreakHeatMap() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: "#f3f4f6",
   },
   map: {
-    width: Dimensions.get('window').width,
-    height: Dimensions.get('window').height - 200, // adjust based on layout
+    width: Dimensions.get("window").width,
+    height: Dimensions.get("window").height - 200, // adjust based on layout
   },
   centerContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   errorText: {
     fontSize: 14,
-    color: '#ef4444',
-    textAlign: 'center',
+    color: "#ef4444",
+    textAlign: "center",
   },
   emptyOverlay: {
-    position: 'absolute',
-    top: '40%',
+    position: "absolute",
+    top: "40%",
     left: 0,
     right: 0,
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.8)',
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.8)",
     padding: 16,
     borderRadius: 12,
     marginHorizontal: 40,
   },
   emptyText: {
     fontSize: 14,
-    color: '#6b7280',
+    color: "#6b7280",
     marginTop: 8,
   },
 });
