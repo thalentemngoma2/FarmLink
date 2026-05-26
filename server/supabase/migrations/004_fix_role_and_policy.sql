@@ -18,4 +18,8 @@ GRANT SELECT (user_id, username) ON public.users TO authenticated;
 
 -- Allow public read of plant scans for community feed
 DROP POLICY IF EXISTS "Public can read plant scans" ON public.plant_scans;
+<<<<<<< HEAD
 CREATE POLICY "Public can read plant scans" ON public.plant_scans FOR SELECT USING (true);
+=======
+CREATE POLICY "Public can read plant scans" ON public.plant_scans FOR SELECT USING (true);
+>>>>>>> gozilethu/farmlink-Mbutho

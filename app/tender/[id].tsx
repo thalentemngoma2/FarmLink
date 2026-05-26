@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+<<<<<<< HEAD
 import { useLocalSearchParams, router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -10,6 +11,19 @@ import {
   Text,
   TouchableOpacity,
   View,
+=======
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+>>>>>>> gozilethu/farmlink-Mbutho
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -469,4 +483,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239,68,68,0.3)',
   },
   deleteButtonText: { color: '#ef4444', fontSize: 16, fontWeight: '700' },
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> gozilethu/farmlink-Mbutho

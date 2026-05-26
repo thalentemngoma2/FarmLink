@@ -149,4 +149,8 @@ CREATE TRIGGER update_tenders_updated_at BEFORE UPDATE ON public.tenders
 CREATE TRIGGER update_tender_applications_updated_at BEFORE UPDATE ON public.tender_applications
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_retail_profiles_updated_at BEFORE UPDATE ON public.retail_profiles
+<<<<<<< HEAD
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+=======
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+>>>>>>> gozilethu/farmlink-Mbutho

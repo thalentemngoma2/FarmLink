@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+<<<<<<< HEAD
 import { useLocalSearchParams, router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -12,6 +13,21 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+=======
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+>>>>>>> gozilethu/farmlink-Mbutho
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -275,4 +291,8 @@ const styles = StyleSheet.create({
     borderColor: '#fca5a5',
   },
   errorText: { color: '#ef4444', fontSize: 14, marginLeft: 8, flex: 1 },
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> gozilethu/farmlink-Mbutho

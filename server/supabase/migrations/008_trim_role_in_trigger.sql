@@ -20,4 +20,8 @@ BEGIN
   );
   RETURN NEW;
 END;
+<<<<<<< HEAD
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+=======
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+>>>>>>> gozilethu/farmlink-Mbutho

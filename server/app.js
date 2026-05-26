@@ -5,20 +5,60 @@ console.log('SUPABASE_SERVICE_ROLE_KEY exists?', !!process.env.SUPABASE_SERVICE_
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const http = require('http');
+const { Server } = require('socket.io');
 const { createClient } = require('@supabase/supabase-js');
+<<<<<<< HEAD
 
+=======
+const winston = require('winston');
+const morgan = require('morgan');
+
+// --------------- Logger setup ---------------
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'logs/combined.log' }),
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      ),
+    }),
+  ],
+});
+
+// Override console.log and console.error to use winston
+console.log = (...args) => logger.info(args.join(' '));
+console.error = (...args) => logger.error(args.join(' '));
+
+console.log('SUPABASE_URL:', process.env.SUPABASE_URL);
+console.log('SUPABASE_SERVICE_ROLE_KEY exists?', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+// --------------- App setup ---------------
+>>>>>>> gozilethu/farmlink-Mbutho
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
-const upload = multer({ storage: multer.memoryStorage() });
 
-// Supabase client
+// --------------- Supabase ---------------
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// --------------- Multer ---------------
+const upload = multer({ storage: multer.memoryStorage() });
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
 // -------------------- Helper functions --------------------
 async function uploadFile(fileBuffer, fileName, folder) {
@@ -44,6 +84,7 @@ function formatRelativeTime(dateStr) {
   return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
 }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 // -------------------- Authentication middleware --------------------
 =======
@@ -99,6 +140,9 @@ async function verifyOutbreakMedia(mediaUrls, userLocation) {
 
 // -------------------- Authentication Middleware --------------------
 >>>>>>> remotes/gozilethu/farmlink-Mbutho
+=======
+// -------------------- Authentication middleware --------------------
+>>>>>>> gozilethu/farmlink-Mbutho
 async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -123,6 +167,113 @@ function requireAuth(req, res, next) {
 
 app.use(authMiddleware);
 
+<<<<<<< HEAD
+=======
+// ==================== Socket.IO – Private Direct Messaging (E2EE‑ready) ====================
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+});
+
+const userSockets = new Map();
+
+io.on('connection', async (socket) => {
+  const token = socket.handshake.query.token;
+  if (!token) {
+    socket.disconnect(true);
+    return;
+  }
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    socket.disconnect(true);
+    return;
+  }
+
+  const userId = user.id;
+  userSockets.set(userId, socket.id);
+  logger.info(`User ${userId} connected (socket ${socket.id})`);
+
+  socket.on('private-message', async (data) => {
+    const { recipientId, encryptedPayload } = data;
+    if (!recipientId || !encryptedPayload) return;
+
+    try {
+      await supabase.from('messages').insert({
+        sender_id: userId,
+        recipient_id: recipientId,
+        encrypted_content: encryptedPayload,
+        created_at: new Date(),
+      });
+    } catch (err) {
+      logger.error('Failed to save encrypted message:', err);
+    }
+
+    const recipientSocketId = userSockets.get(recipientId);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('private-message', {
+        senderId: userId,
+        encryptedPayload,
+        timestamp: Date.now(),
+      });
+    }
+
+    socket.emit('private-message', {
+      senderId: userId,
+      encryptedPayload,
+      timestamp: Date.now(),
+    });
+  });
+
+  socket.on('typing', (data) => {
+    const recipientSocketId = userSockets.get(data.recipientId);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('typing', { senderId: userId });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    userSockets.delete(userId);
+    logger.info(`User ${userId} disconnected`);
+  });
+});
+
+// ==================== REST endpoint: get chat history ====================
+app.get('/messages/:otherUserId', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Missing token' });
+  const token = authHeader.split(' ')[1];
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !user) return res.status(401).json({ error: 'Invalid token' });
+
+  const { otherUserId } = req.params;
+  const limit = parseInt(req.query.limit) || 50;
+
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .or(`and(sender_id.eq.${user.id},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${user.id})`)
+      .order('created_at', { ascending: true })
+      .limit(limit);
+
+    if (error) throw error;
+
+    const messages = data.map(m => ({
+      id: m.id,
+      senderId: m.sender_id,
+      recipientId: m.recipient_id,
+      encryptedPayload: m.encrypted_content,
+      timestamp: m.created_at,
+    }));
+
+    res.json(messages);
+  } catch (err) {
+    logger.error('Chat history error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+>>>>>>> gozilethu/farmlink-Mbutho
 // ==================== COMMUNITY & POSTS ====================
 app.get('/community-server/src/index', async (req, res) => {
   const { userId } = req.query;
@@ -267,13 +418,17 @@ app.post('/auth-server/src/index/signup', async (req, res) => {
   const { email, password, name, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
+<<<<<<< HEAD
   // Validate role - must be one of the allowed values
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
   const validRoles = ['farmer', 'retailer', 'admin', 'extension_officer'];
   const normalizedRole = ((role || '').trim().toLowerCase());
   if (!validRoles.includes(normalizedRole)) {
     return res.status(400).json({ error: `Invalid role: ${role}. Must be one of: ${validRoles.join(', ')}` });
   }
 
+<<<<<<< HEAD
    try {
      // Generate a guaranteed globally unique username using UUID
      const { v4: uuidv4 } = require('uuid');
@@ -294,6 +449,26 @@ app.post('/auth-server/src/index/signup', async (req, res) => {
          emailRedirectTo: undefined
        }
      });
+=======
+  try {
+    const { v4: uuidv4 } = require('uuid');
+    const uniqueSuffix = uuidv4().substring(0, 8);
+    const defaultName = name || `${email.split('@')[0]}_${uniqueSuffix}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const defaultUsername = `${email.split('@')[0]}_${uniqueSuffix}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: {
+        data: {
+          name: defaultName,
+          username: defaultUsername,
+          role: normalizedRole,
+          location: ''
+        },
+        emailRedirectTo: undefined
+      }
+    });
+>>>>>>> gozilethu/farmlink-Mbutho
     if (error) throw error;
     res.status(201).json({ message: 'Verification email sent', user: data.user });
   } catch (err) {
@@ -482,7 +657,11 @@ app.get('/scan-server/src/index', requireAuth, async (req, res) => {
 });
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 // ==================== EXTRA: Trending (public) ====================
+=======
+// ==================== EXTRA: Trending ====================
+>>>>>>> gozilethu/farmlink-Mbutho
 app.get('/trending', async (req, res) => {
   const { limit = 10 } = req.query;
   const { data, error } = await supabase
@@ -501,6 +680,7 @@ app.get('/trending', async (req, res) => {
     imageUri: post.media_urls?.[0] || null,
   }));
   res.json(trending);
+<<<<<<< HEAD
 });
 
 // ==================== TENDER MARKETPLACE ====================
@@ -1293,80 +1473,399 @@ app.post('/outbreak/report', requireAuth, upload.array('media', 5), async (req, 
     console.error('Outbreak report error', err);
     res.status(500).json({ error: err.message });
   }
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
 });
 
-// Get a user's outbreak reports (with verification status)
-app.get('/outbreak/reports/:userId', requireAuth, async (req, res) => {
-  const { userId } = req.params;
-  if (req.user.id !== userId) return res.status(403).json({ error: 'Forbidden' });
-  try {
-    const { data, error } = await supabase
-      .from('outbreak_reports')
-      .select('*, outbreak_media(media_url, media_type)')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// ==================== TENDER MARKETPLACE ====================
+async function getUserRole(userId) {
+  const { data, error } = await supabase.from('users').select('role').eq('user_id', userId).single();
+  if (error || !data) return null;
+  return data.role;
+}
+
+app.get('/tenders', async (req, res) => {
+  const { category, status = 'open', search } = req.query;
+  let query = supabase
+    .from('tenders')
+    .select('*, retail_profiles:retailer_id(store_name, city), tender_requirements(*)')
+    .order('created_at', { ascending: false });
+  if (status) query = query.eq('status', status);
+  if (category) query = query.eq('product_category', category);
+  if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  const tenders = data.map(t => ({
+    id: t.tender_id,
+    title: t.title,
+    description: t.description,
+    productCategory: t.product_category,
+    quantityNeeded: t.quantity_needed,
+    budgetRange: t.budget_range,
+    deliveryLocation: t.delivery_location,
+    deliveryDate: t.delivery_date,
+    deadline: t.deadline,
+    status: t.status,
+    contactEmail: t.contact_email,
+    requiredDocuments: t.required_documents,
+    isPrivate: t.is_private,
+    retailerName: t.retail_profiles?.store_name || 'Unknown Retailer',
+    retailerCity: t.retail_profiles?.city || '',
+    requirements: (t.tender_requirements || []).map(r => ({
+      id: r.requirement_id,
+      productName: r.product_name,
+      quantity: r.quantity,
+      gradeQuality: r.grade_quality,
+    })),
+    createdAt: t.created_at,
+    timeAgo: formatRelativeTime(t.created_at),
+  }));
+  res.json(tenders);
 });
 
-// Get a single outbreak report details (for heat map or details view)
-app.get('/outbreak/report/:id', async (req, res) => {
+app.get('/tenders/:id', async (req, res) => {
   const { id } = req.params;
-  try {
-    const { data, error } = await supabase
-      .from('outbreak_reports')
-      .select('*, outbreak_media(media_url, media_type)')
-      .eq('id', id)
-      .single();
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { data, error } = await supabase
+    .from('tenders')
+    .select('*, retail_profiles:retailer_id(store_name, city, address, business_type), tender_requirements(*)')
+    .eq('tender_id', id)
+    .single();
+  if (error) return res.status(404).json({ error: 'Tender not found' });
+  const tender = {
+    id: data.tender_id,
+    title: data.title,
+    description: data.description,
+    productCategory: data.product_category,
+    quantityNeeded: data.quantity_needed,
+    budgetRange: data.budget_range,
+    deliveryLocation: data.delivery_location,
+    deliveryDate: data.delivery_date,
+    deadline: data.deadline,
+    status: data.status,
+    contactEmail: data.contact_email,
+    requiredDocuments: data.required_documents,
+    isPrivate: data.is_private,
+    retailer: {
+      name: data.retail_profiles?.store_name || 'Unknown',
+      city: data.retail_profiles?.city || '',
+      address: data.retail_profiles?.address || '',
+      businessType: data.retail_profiles?.business_type || '',
+    },
+    requirements: (data.tender_requirements || []).map(r => ({
+      id: r.requirement_id,
+      productName: r.product_name,
+      quantity: r.quantity,
+      gradeQuality: r.grade_quality,
+      notes: r.notes,
+    })),
+    createdAt: data.created_at,
+  };
+  res.json(tender);
 });
 
-// Get all verified outbreaks (for heat map)
-app.get('/outbreak/verified', async (req, res) => {
-  const { limit = 100 } = req.query;
-  try {
-    const { data, error } = await supabase
-      .from('outbreak_reports')
-      .select('id, animal_type, disease_name, location, created_at, ai_confidence_score')
-      .eq('status', 'verified')
-      .order('created_at', { ascending: false })
-      .limit(parseInt(limit));
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.post('/tenders', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  if (role !== 'retailer' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only retailers can post tenders' });
   }
+  const {
+    title, description, productCategory, quantityNeeded, budgetRange,
+    deliveryLocation, deliveryDate, deadline, contactEmail, requiredDocuments, requirements
+  } = req.body;
+  if (!title || !description || !deadline) {
+    return res.status(400).json({ error: 'Title, description, and deadline are required' });
+  }
+  const { data: tender, error } = await supabase
+    .from('tenders')
+    .insert({
+      retailer_id: req.user.id,
+      title,
+      description,
+      product_category: productCategory,
+      quantity_needed: quantityNeeded,
+      budget_range: budgetRange,
+      delivery_location: deliveryLocation,
+      delivery_date: deliveryDate,
+      deadline,
+      contact_email: contactEmail,
+      required_documents: requiredDocuments,
+      status: 'open',
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  if (requirements && Array.isArray(requirements) && requirements.length > 0) {
+    const reqs = requirements.map(r => ({
+      tender_id: tender.tender_id,
+      product_name: r.productName,
+      quantity: r.quantity,
+      grade_quality: r.gradeQuality,
+      notes: r.notes,
+    }));
+    await supabase.from('tender_requirements').insert(reqs);
+  }
+
+  res.status(201).json({ success: true, tender });
 });
 
-// Endpoint to get verification card for a specific report
-app.get('/outbreak/verification/:reportId', async (req, res) => {
-  const { reportId } = req.params;
+app.put('/tenders/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const role = await getUserRole(req.user.id);
+  const { data: existing } = await supabase.from('tenders').select('retailer_id').eq('tender_id', id).single();
+  if (!existing) return res.status(404).json({ error: 'Tender not found' });
+  if (existing.retailer_id !== req.user.id && role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const updates = req.body;
+  const { error } = await supabase.from('tenders').update(updates).eq('tender_id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.get('/my-tenders', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  if (role !== 'retailer' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only retailers can view their tenders' });
+  }
+  const { data, error } = await supabase
+    .from('tenders')
+    .select('*, tender_applications(count)')
+    .eq('retailer_id', req.user.id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const tenders = data.map(t => ({
+    id: t.tender_id,
+    title: t.title,
+    status: t.status,
+    deadline: t.deadline,
+    applicationCount: t.tender_applications?.[0]?.count || 0,
+    createdAt: t.created_at,
+  }));
+  res.json(tenders);
+});
+
+app.post('/applications', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  if (role !== 'farmer' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only farmers can apply to tenders' });
+  }
+  const { tenderId, proposedPrice, message, deliveryCommitment } = req.body;
+  if (!tenderId) return res.status(400).json({ error: 'tenderId is required' });
+  const { data, error } = await supabase
+    .from('tender_applications')
+    .insert({
+      tender_id: tenderId,
+      farmer_id: req.user.id,
+      proposed_price: proposedPrice,
+      message,
+      delivery_commitment: deliveryCommitment,
+      status: 'pending',
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'You have already applied to this tender' });
+    return res.status(500).json({ error: error.message });
+  }
+  res.status(201).json({ success: true, application: data });
+});
+
+app.get('/applications', requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from('tender_applications')
+    .select('*, tenders:tender_id(title, retailer_id, status, deadline, retail_profiles:retailer_id(store_name))')
+    .eq('farmer_id', req.user.id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const applications = data.map(a => ({
+    id: a.application_id,
+    tenderId: a.tender_id,
+    tenderTitle: a.tenders?.title || '',
+    retailerName: a.tenders?.retail_profiles?.store_name || '',
+    proposedPrice: a.proposed_price,
+    message: a.message,
+    status: a.status,
+    createdAt: a.created_at,
+  }));
+  res.json(applications);
+});
+
+app.get('/tenders/:id/applications', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const role = await getUserRole(req.user.id);
+  const { data: tender } = await supabase.from('tenders').select('retailer_id').eq('tender_id', id).single();
+  if (!tender) return res.status(404).json({ error: 'Tender not found' });
+  if (tender.retailer_id !== req.user.id && role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized to view applications' });
+  }
+  const { data, error } = await supabase
+    .from('tender_applications')
+    .select('*, profiles:farmer_id(full_name, location, farm_type, bio)')
+    .eq('tender_id', id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const applications = data.map(a => ({
+    id: a.application_id,
+    farmerId: a.farmer_id,
+    farmerName: a.profiles?.full_name || 'Anonymous',
+    farmerLocation: a.profiles?.location || '',
+    farmType: a.profiles?.farm_type || '',
+    bio: a.profiles?.bio || '',
+    proposedPrice: a.proposed_price,
+    message: a.message,
+    deliveryCommitment: a.delivery_commitment,
+    status: a.status,
+    createdAt: a.created_at,
+  }));
+  res.json(applications);
+});
+
+app.put('/applications/:id/status', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  if (!['pending', 'shortlisted', 'accepted', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  const role = await getUserRole(req.user.id);
+  const { data: appData } = await supabase
+    .from('tender_applications')
+    .select('tender_id')
+    .eq('application_id', id)
+    .single();
+  if (!appData) return res.status(404).json({ error: 'Application not found' });
+  const { data: tender } = await supabase.from('tenders').select('retailer_id').eq('tender_id', appData.tender_id).single();
+  if (tender.retailer_id !== req.user.id && role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const { error } = await supabase.from('tender_applications').update({ status }).eq('application_id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.post('/tender-messages', requireAuth, async (req, res) => {
+  const { tenderId, receiverId, content } = req.body;
+  if (!tenderId || !receiverId || !content) {
+    return res.status(400).json({ error: 'tenderId, receiverId, and content are required' });
+  }
+  const { data: tender } = await supabase.from('tenders').select('retailer_id').eq('tender_id', tenderId).single();
+  const { data: application } = await supabase
+    .from('tender_applications')
+    .select('farmer_id')
+    .eq('tender_id', tenderId)
+    .eq('farmer_id', req.user.id)
+    .maybeSingle();
+  const isRetailer = tender && tender.retailer_id === req.user.id;
+  const isApplicant = application && application.farmer_id === req.user.id;
+  if (!isRetailer && !isApplicant) {
+    return res.status(403).json({ error: 'You are not a participant in this tender' });
+  }
+  const { data, error } = await supabase
+    .from('tender_messages')
+    .insert({
+      tender_id: tenderId,
+      sender_id: req.user.id,
+      receiver_id: receiverId,
+      content,
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ success: true, message: data });
+});
+
+app.get('/tender-messages/:tenderId', requireAuth, async (req, res) => {
+  const { tenderId } = req.params;
+  const { data: tender } = await supabase.from('tenders').select('retailer_id').eq('tender_id', tenderId).single();
+  const { data: application } = await supabase
+    .from('tender_applications')
+    .select('farmer_id')
+    .eq('tender_id', tenderId)
+    .eq('farmer_id', req.user.id)
+    .maybeSingle();
+  const isRetailer = tender && tender.retailer_id === req.user.id;
+  const isApplicant = application && application.farmer_id === req.user.id;
+  if (!isRetailer && !isApplicant) {
+    return res.status(403).json({ error: 'You are not a participant in this tender' });
+  }
+  const { data, error } = await supabase
+    .from('tender_messages')
+    .select('*')
+    .eq('tender_id', tenderId)
+    .or(`sender_id.eq.${req.user.id},receiver_id.eq.${req.user.id}`)
+    .order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// ==================== EXPERT REQUESTS ====================
+app.get('/experts', async (req, res) => {
+  const { data: experts, error } = await supabase
+    .from('users')
+    .select(`
+      user_id,
+      profiles:user_id (full_name, location, farming_type, bio, avatar)
+    `)
+    .eq('role', 'extension_officer');
+  if (error) return res.status(500).json({ error: error.message });
+  const expertsList = (experts || []).map(e => ({
+    id: e.user_id,
+    name: e.profiles?.full_name || 'Unknown',
+    location: e.profiles?.location || '',
+    specialty: e.profiles?.farming_type || '',
+    bio: e.profiles?.bio || '',
+    avatar: e.profiles?.avatar || null,
+  }));
+  res.json(expertsList);
+});
+
+app.post('/expert-requests', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  if (role !== 'farmer' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only farmers can send expert requests' });
+  }
+  const { subject, description, category, priority } = req.body;
+  if (!subject || !description) {
+    return res.status(400).json({ error: 'Subject and description are required' });
+  }
+  const { data, error } = await supabase
+    .from('expert_requests')
+    .insert({
+      farmer_id: req.user.id,
+      subject,
+      description,
+      category: category || null,
+      priority: priority || 'medium',
+      status: 'pending',
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
   try {
-    const { data, error } = await supabase
-      .from('outbreak_reports')
-      .select('status, verification_reason, ai_confidence_score')
-      .eq('id', reportId)
-      .single();
-    if (error) throw error;
-    let cardMessage = '';
-    if (data.status === 'verified') {
-      cardMessage = `✅ Report verified! Confidence: ${Math.round(data.ai_confidence_score * 100)}% – ${data.verification_reason || 'Outbreak confirmed.'}`;
-    } else if (data.status === 'rejected') {
-      cardMessage = `❌ Report rejected: ${data.verification_reason || 'Media validation failed.'} Please provide clearer evidence.`;
-    } else {
-      cardMessage = `⏳ Verifying your report... We'll notify you once the AI check is complete.`;
+    const { data: assignResult } = await supabase.rpc('assign_request_to_expert', {
+      request_uuid: data.request_id
+    });
+    if (assignResult) {
+      const { data: updated } = await supabase
+        .from('expert_requests')
+        .select(`
+          *,
+          expert:expert_id (user_id, profiles:user_id (full_name, avatar, location)),
+          farmer:farmer_id (user_id, profiles:user_id (full_name, avatar, location))
+        `)
+        .eq('request_id', data.request_id)
+        .single();
+      return res.status(201).json({ success: true, request: updated });
     }
-    res.json({ status: data.status, message: cardMessage });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (assignErr) {
+    console.log('Auto-assignment skipped:', assignErr.message);
   }
+<<<<<<< HEAD
 >>>>>>> remotes/gozilethu/farmlink-Mbutho
 });
 
@@ -1375,3 +1874,297 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`FarmLink main server running on port ${PORT}`);
 });
  
+=======
+
+  res.status(201).json({ success: true, request: data });
+});
+
+app.get('/expert-requests', requireAuth, async (req, res) => {
+  const role = await getUserRole(req.user.id);
+  let query = supabase
+    .from('expert_requests')
+    .select(`
+      *,
+      expert:expert_id (user_id, profiles:user_id (full_name, avatar, location)),
+      farmer:farmer_id (user_id, profiles:user_id (full_name, avatar, location))
+    `)
+    .order('created_at', { ascending: false });
+
+  if (role === 'farmer') {
+    query = query.eq('farmer_id', req.user.id);
+  } else if (role === 'extension_officer') {
+  } else if (role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+
+  const requests = data.map(r => ({
+    id: r.request_id,
+    subject: r.subject,
+    description: r.description,
+    category: r.category,
+    priority: r.priority,
+    status: r.status,
+    response: r.response,
+    assignedAt: r.assigned_at,
+    resolvedAt: r.resolved_at,
+    createdAt: r.created_at,
+    expert: r.expert ? {
+      id: r.expert.user_id,
+      name: r.expert.profiles?.full_name || 'Unknown',
+      location: r.expert.profiles?.location || '',
+      avatar: r.expert.profiles?.avatar || null,
+    } : null,
+    farmer: r.farmer ? {
+      id: r.farmer.user_id,
+      name: r.farmer.profiles?.full_name || 'Unknown',
+      location: r.farmer.profiles?.location || '',
+      avatar: r.farmer.profiles?.avatar || null,
+    } : null,
+  }));
+  res.json(requests);
+});
+
+app.get('/expert-requests/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const role = await getUserRole(req.user.id);
+
+  const { data, error } = await supabase
+    .from('expert_requests')
+    .select(`
+      *,
+      expert:expert_id (user_id, profiles:user_id (full_name, avatar, location, farming_type, bio)),
+      farmer:farmer_id (user_id, profiles:user_id (full_name, avatar, location, farm_size, main_crops))
+    `)
+    .eq('request_id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  const isOwner = data.farmer_id === req.user.id;
+  const isAssignedExpert = data.expert_id === req.user.id;
+  const isAdmin = role === 'admin';
+  if (!isOwner && !isAssignedExpert && !isAdmin) {
+    return res.status(403).json({ error: 'Not authorized to view this request' });
+  }
+
+  const request = {
+    id: data.request_id,
+    subject: data.subject,
+    description: data.description,
+    category: data.category,
+    priority: data.priority,
+    status: data.status,
+    response: data.response,
+    assignedAt: data.assigned_at,
+    resolvedAt: data.resolved_at,
+    createdAt: data.created_at,
+    expert: data.expert ? {
+      id: data.expert.user_id,
+      name: data.expert.profiles?.full_name || 'Unknown',
+      location: data.expert.profiles?.location || '',
+      specialty: data.expert.profiles?.farming_type || '',
+      bio: data.expert.profiles?.bio || '',
+      avatar: data.expert.profiles?.avatar || null,
+    } : null,
+    farmer: {
+      id: data.farmer.user_id,
+      name: data.farmer.profiles?.full_name || 'Unknown',
+      location: data.farmer.profiles?.location || '',
+      farmSize: data.farmer.profiles?.farm_size || '',
+      mainCrops: data.farmer.profiles?.main_crops || [],
+      avatar: data.farmer.profiles?.avatar || null,
+    },
+  };
+
+  res.json(request);
+});
+
+app.put('/expert-requests/:id/status', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { status, response } = req.body;
+  const role = await getUserRole(req.user.id);
+
+  if (status && !['pending', 'assigned', 'in_progress', 'resolved', 'closed'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  const { data: request, error: fetchErr } = await supabase
+    .from('expert_requests')
+    .select('*')
+    .eq('request_id', id)
+    .single();
+
+  if (fetchErr) {
+    if (fetchErr.code === 'PGRST116') {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    return res.status(500).json({ error: fetchErr.message });
+  }
+
+  const isAssignedExpert = request.expert_id === req.user.id;
+  const isAdmin = role === 'admin';
+  if (!isAssignedExpert && !isAdmin) {
+    return res.status(403).json({ error: 'Only the assigned expert or admin can update this request' });
+  }
+
+  const updates = { updated_at: new Date() };
+  if (status) updates.status = status;
+  if (response !== undefined) updates.response = response;
+
+  if (status === 'assigned' && !request.expert_id) {
+    updates.expert_id = req.user.id;
+    updates.assigned_at = new Date();
+  }
+  if (status === 'resolved') {
+    updates.resolved_at = new Date();
+  }
+
+  const { error } = await supabase
+    .from('expert_requests')
+    .update(updates)
+    .eq('request_id', id);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ success: true });
+});
+
+app.post('/expert-requests/:id/messages', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: 'Message content is required' });
+
+  const { data: request, error: fetchErr } = await supabase
+    .from('expert_requests')
+    .select('farmer_id, expert_id')
+    .eq('request_id', id)
+    .single();
+
+  if (fetchErr) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+
+  const isFarmer = request.farmer_id === req.user.id;
+  const isExpert = request.expert_id === req.user.id;
+  if (!isFarmer && !isExpert) {
+    return res.status(403).json({ error: 'Only the farmer or assigned expert can send messages' });
+  }
+
+  if (request.status === 'closed') {
+    return res.status(400).json({ error: 'Cannot send messages to a closed request' });
+  }
+
+  const { data, error } = await supabase
+    .from('expert_request_messages')
+    .insert({
+      request_id: id,
+      sender_id: req.user.id,
+      content,
+      created_at: new Date(),
+    })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ success: true, message: data });
+});
+
+app.get('/expert-requests/:id/messages', requireAuth, async (req, res) => {
+  const { id } = req.params;
+
+  const { data: request, error: fetchErr } = await supabase
+    .from('expert_requests')
+    .select('farmer_id, expert_id')
+    .eq('request_id', id)
+    .single();
+
+  if (fetchErr) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+
+  const isFarmer = request.farmer_id === req.user.id;
+  const isExpert = request.expert_id === req.user.id;
+  if (!isFarmer && !isExpert) {
+    return res.status(403).json({ error: 'Only the farmer and assigned expert can view messages' });
+  }
+
+  const { data, error } = await supabase
+    .from('expert_request_messages')
+    .select(`
+      *,
+      sender:sender_id (
+        user_id,
+        profiles:user_id (full_name, avatar)
+      )
+    `)
+    .eq('request_id', id)
+    .order('created_at', { ascending: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  const messages = (data || []).map(m => ({
+    id: m.message_id,
+    content: m.content,
+    isRead: m.is_read,
+    createdAt: m.created_at,
+    sender: {
+      id: m.sender.user_id,
+      name: m.sender.profiles?.full_name || 'Unknown',
+      avatar: m.sender.profiles?.avatar || null,
+    },
+  }));
+
+  res.json(messages);
+});
+
+app.delete('/expert-requests/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+
+  const { data: request, error: fetchErr } = await supabase
+    .from('expert_requests')
+    .select('farmer_id, status')
+    .eq('request_id', id)
+    .single();
+
+  if (fetchErr) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+
+  if (request.farmer_id !== req.user.id) {
+    return res.status(403).json({ error: 'Only the farmer who created this request can delete it' });
+  }
+
+  if (!['pending', 'assigned'].includes(request.status)) {
+    return res.status(400).json({ error: 'Cannot delete a request that is in progress or resolved' });
+  }
+
+  const { error } = await supabase
+    .from('expert_requests')
+    .delete()
+    .eq('request_id', id);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+// ==================== Global error handlers ====================
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// ==================== START SERVER ====================
+server.listen(PORT, '0.0.0.0', () => {
+  logger.info(`🚀 FarmLink server running on port ${PORT} (HTTP + WebSocket)`);
+});
+>>>>>>> gozilethu/farmlink-Mbutho

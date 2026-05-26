@@ -5,7 +5,11 @@ import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from 'expo-router';
+<<<<<<< HEAD
 import React, { useCallback, useState } from 'react';
+=======
+import { useCallback, useState } from 'react';
+>>>>>>> gozilethu/farmlink-Mbutho
 import {
   ActivityIndicator,
   Alert,
@@ -32,7 +36,11 @@ interface Application {
   createdAt: string;
 }
 
+<<<<<<< HEAD
 export default function SuppliersPage() {
+=======
+export function SuppliersPage() {
+>>>>>>> gozilethu/farmlink-Mbutho
   const { user } = useAuth();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);

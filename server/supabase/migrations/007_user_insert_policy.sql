@@ -21,4 +21,8 @@ CREATE POLICY "Admin can insert users" ON public.users
 --   TO authenticated
 --   WITH CHECK (
 --     role IN ('farmer', 'retailer', 'extension_officer')
+<<<<<<< HEAD
 --   );
+=======
+--   );
+>>>>>>> gozilethu/farmlink-Mbutho

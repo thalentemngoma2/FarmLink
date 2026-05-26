@@ -1,8 +1,15 @@
+<<<<<<< HEAD
 import { supabase } from "@/lib/supabase";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
+=======
+import { supabase } from '@/lib/supabase';
+import { router } from 'expo-router';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
+>>>>>>> gozilethu/farmlink-Mbutho
 
 export interface User {
   id: string;
@@ -20,6 +27,7 @@ interface AuthContextType {
   isUnlocking: boolean;
 
   login: (email: string, password: string) => Promise<void>;
+<<<<<<< HEAD
   signup: (
     email: string,
     password: string,
@@ -28,6 +36,9 @@ interface AuthContextType {
     location?: string,
   ) => Promise<void>;
 
+=======
+  signup: (email: string, password: string, name: string, role?: string, location?: string) => Promise<void>;
+>>>>>>> gozilethu/farmlink-Mbutho
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
@@ -45,6 +56,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [user, setUser] = useState<User | null>(null);
+<<<<<<< HEAD
+=======
+  // const [session, setSession] = useState<any | null>(null); // unused
+>>>>>>> gozilethu/farmlink-Mbutho
   const [isLoading, setIsLoading] = useState(true);
   const [isUnlocking, setIsUnlocking] = useState(false);
 
@@ -86,11 +101,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+<<<<<<< HEAD
+=======
+  // Moved outside useEffect so it can be called immediately after login/signup
+  const fetchUserWithRole = async (session: any) => {
+    if (!session?.user) {
+      setUser(null);
+      return;
+    }
+
+    try {
+      // Fetch role from public.users table
+      const { data: userData, error } = await supabase
+        .from('users')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setUser({
+        id: session.user.id,
+        email: session.user.email!,
+        name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
+        avatar: session.user.user_metadata?.avatar,
+        role: userData?.role,
+      });
+    } catch (e: any) {
+      if (e.name === 'AbortError' || e.message?.includes('AbortError')) return;
+      // Avoid crashing app startup if DB/network is unreachable
+      console.error('Failed to fetch user role', e);
+      setUser({
+        id: session.user.id,
+        email: session.user.email!,
+        name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
+        avatar: session.user.user_metadata?.avatar,
+        role: undefined,
+      });
+    }
+  };
+
+  // Listen to auth state changes from Supabase
+>>>>>>> gozilethu/farmlink-Mbutho
   useEffect(() => {
     let isMounted = true;
 
     const init = async () => {
       try {
+<<<<<<< HEAD
         const {
           data: { session },
           error,
@@ -137,10 +195,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         } catch {
           // ignore
         }
+=======
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (isMounted) await fetchUserWithRole(session);
+      } catch (e: any) {
+        if (e.name === 'AbortError' || e.message?.includes('AbortError')) return;
+        console.error('Failed to get Supabase session', e);
+        if (isMounted) setUser(null);
+      } finally {
+        if (isMounted) setIsLoading(false);
+        
+        // Fire a lightweight, silent query to wake up the database API
+        // while the user is still looking at the app's splash/home screen.
+        supabase.from('users').select('user_id').limit(1)
+          .then(() => console.log('Database warm-up complete'))
+          .catch(() => {});
+>>>>>>> gozilethu/farmlink-Mbutho
       }
     };
 
     init();
+<<<<<<< HEAD
 
     const {
       data: { subscription },
@@ -173,13 +249,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     if (Platform.OS === "web" && typeof window !== "undefined") {
       window.addEventListener("keydown", handleKeyDown);
+=======
+
+    // Listen for changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (isMounted) {
+        try {
+          await fetchUserWithRole(session);
+        } catch (e) {
+          console.error('Auth state change handling failed', e);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    });
+
+    // Global keyboard listener for force logout (Ctrl + Shift + O)
+    const handleKeyDown = async (e: any) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        setIsLoading(true);
+        try {
+          // Forcibly clear local session tokens
+          await supabase.auth.signOut();
+          if (isMounted) setUser(null);
+          router.replace('/login');
+        } catch (err) {
+          console.error('Force logout error', err);
+        } finally {
+          if (isMounted) setIsLoading(false);
+        }
+      }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.addEventListener('keydown', handleKeyDown);
+>>>>>>> gozilethu/farmlink-Mbutho
     }
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+<<<<<<< HEAD
       if (Platform.OS === "web" && typeof window !== "undefined") {
         window.removeEventListener("keydown", handleKeyDown);
+=======
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.removeEventListener('keydown', handleKeyDown);
+>>>>>>> gozilethu/farmlink-Mbutho
       }
     };
   }, []);
@@ -187,11 +304,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
+<<<<<<< HEAD
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
       if (error) throw error;
+=======
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      
+      // Update state immediately so navigation doesn't see a null user
+>>>>>>> gozilethu/farmlink-Mbutho
       if (data.session) {
         await fetchUserWithRole(data.session);
       }
@@ -202,6 +326,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+<<<<<<< HEAD
   const signup = async (
     email: string,
     password: string,
@@ -228,11 +353,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         .replace(/[^a-z0-9_]/g, "_");
 
       // 1) Create user in Supabase Auth
+=======
+const signup = async (email: string, password: string, name: string, role?: string, location?: string) => {
+   setIsLoading(true);
+   try {
+     // Normalize and validate role
+     const validRoles = ['farmer', 'retailer', 'admin', 'extension_officer'];
+     const normalizedRole = (role || 'farmer').trim().toLowerCase();
+     if (!validRoles.includes(normalizedRole)) {
+       throw new Error(`Invalid role: ${role}. Must be one of: ${validRoles.join(', ')}`);
+     }
+
+     // Generate a unique username to prevent collisions (e.g., same email prefix)
+     const timestamp = Date.now();
+     const randomPart = Math.random().toString(36).substring(2, 10);
+     const username = `${email.split('@')[0]}_${timestamp}_${randomPart}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+     // 1. Create user in Supabase Auth
+>>>>>>> gozilethu/farmlink-Mbutho
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
+<<<<<<< HEAD
             name,
             username,
             role: normalizedRole,
@@ -270,6 +414,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       setIsLoading(false);
     }
   };
+=======
+            name: name || username,
+            username,
+            role: normalizedRole,
+            location: location || ''
+          },
+          emailRedirectTo: undefined
+        },
+      });
+        if (error) throw error;
+        if (!data.user) throw new Error('Signup failed');
+
+        console.log('Signup success - user created with role:', normalizedRole);
+   } catch (err: any) {
+     throw new Error(err.message || 'Signup failed');
+   } finally {
+     setIsLoading(false);
+   }
+ };
+>>>>>>> gozilethu/farmlink-Mbutho
 
   const verifyOTP = async (email: string, token: string) => {
     setIsLoading(true);
@@ -281,7 +445,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       });
 
       if (error) throw error;
+<<<<<<< HEAD
 
+=======
+      
+>>>>>>> gozilethu/farmlink-Mbutho
       if (data.session) {
         await fetchUserWithRole(data.session);
       }

@@ -1,7 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
+<<<<<<< HEAD
 import React, { useCallback, useState } from 'react';
+=======
+import { useCallback, useState } from 'react';
+>>>>>>> gozilethu/farmlink-Mbutho
 import {
   ActivityIndicator,
   Platform,
@@ -53,7 +57,11 @@ const formatTimeAgo = (dateStr: string) => {
   return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
 };
 
+<<<<<<< HEAD
 export default function TendersPage() {
+=======
+export function TendersPage() {
+>>>>>>> gozilethu/farmlink-Mbutho
   const { user } = useAuth();
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [loading, setLoading] = useState(true);
@@ -382,4 +390,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
   },
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> gozilethu/farmlink-Mbutho

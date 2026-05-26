@@ -2,6 +2,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+<<<<<<< HEAD
 <<<<<<< HEAD:app/tenderNotifications.tsx
 import axios from 'axios';
 =======
@@ -56,6 +57,36 @@ const Callout = Platform.OS !== 'web' ? RNMaps.Callout : null;
 interface Notification {
   id: string;
   type: string;
+=======
+import axios from 'axios';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Link, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import Animated, {
+    FadeIn,
+    Layout,
+    SlideInLeft,
+    SlideOutRight,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withTiming
+} from 'react-native-reanimated';
+import { API_BASE } from './(tabs)/api';
+
+interface Notification {
+  id: string;
+  type: 'reply' | 'like' | 'follow' | 'achievement' | 'alert' | 'system';
+>>>>>>> gozilethu/farmlink-Mbutho
   title: string;
   message: string;
   time: string;
@@ -65,6 +96,7 @@ interface Notification {
   iconColor: string;
 }
 
+<<<<<<< HEAD
 <<<<<<< HEAD:app/tenderNotifications.tsx
 const NOTIFICATION_API = API_BASE; // Replace with your IP
 
@@ -816,6 +848,10 @@ const reportStyles = StyleSheet.create({
 // Main Notifications Page
 // ---------------------------------------------------------------------------
 >>>>>>> remotes/gozilethu/farmlink-Mbutho:app/notifications.tsx
+=======
+const NOTIFICATION_API = API_BASE; // Replace with your IP
+
+>>>>>>> gozilethu/farmlink-Mbutho
 export default function NotificationsPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -823,20 +859,27 @@ export default function NotificationsPage() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+<<<<<<< HEAD
   const [activeTab, setActiveTab] = useState<'alerts' | 'outbreaks'>('alerts');
   const [showReportModal, setShowReportModal] = useState(false);
 
   const initialFetchDone = useRef(false);
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
 
   const fetchNotifications = async () => {
     if (!user) return;
     try {
+<<<<<<< HEAD
 <<<<<<< HEAD:app/tenderNotifications.tsx
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
       setLoading(true);
       const url = `${NOTIFICATION_API}/notifications/${user.id}?filter=${filter}`;
       const res = await axios.get(url);
       setNotifications(res.data);
     } catch (err) {
+<<<<<<< HEAD
 =======
       const { data, error } = await supabase
         .from('notifications')
@@ -862,6 +905,8 @@ export default function NotificationsPage() {
       setNotifications(formatted);
     } catch (err: any) {
 >>>>>>> remotes/gozilethu/farmlink-Mbutho:app/notifications.tsx
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
       console.error('Failed to load notifications', err);
       setError('Failed to load notifications');
     } finally {
@@ -870,6 +915,7 @@ export default function NotificationsPage() {
   };
 
   useEffect(() => {
+<<<<<<< HEAD
 <<<<<<< HEAD:app/tenderNotifications.tsx
     if (user) {
       fetchNotifications();
@@ -888,6 +934,10 @@ export default function NotificationsPage() {
     } catch (err) {
       console.error(err);
 >>>>>>> remotes/gozilethu/farmlink-Mbutho:app/notifications.tsx
+=======
+    if (user) {
+      fetchNotifications();
+>>>>>>> gozilethu/farmlink-Mbutho
     }
   }, [user, filter]);
 
@@ -897,6 +947,7 @@ export default function NotificationsPage() {
   const markAllAsRead = async () => {
     if (!user) return;
     try {
+<<<<<<< HEAD
 <<<<<<< HEAD:app/tenderNotifications.tsx
       await axios.post(`${NOTIFICATION_API}/notifications/${user.id}/read-all`);
       await fetchNotifications();
@@ -910,6 +961,15 @@ export default function NotificationsPage() {
   };
 
 <<<<<<< HEAD:app/tenderNotifications.tsx
+=======
+      await axios.post(`${NOTIFICATION_API}/notifications/${user.id}/read-all`);
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Failed to mark all as read', err);
+    }
+  };
+
+>>>>>>> gozilethu/farmlink-Mbutho
   const markAsRead = async (id: string) => {
     if (!user) return;
     try {
@@ -925,6 +985,7 @@ export default function NotificationsPage() {
     try {
       await axios.delete(`${NOTIFICATION_API}/notifications/${user.id}/${id}`);
       await fetchNotifications();
+<<<<<<< HEAD
 =======
   const deleteNotification = async (id: string) => {
     if (!user) return;
@@ -945,6 +1006,14 @@ export default function NotificationsPage() {
 
   // Background animation
 >>>>>>> remotes/gozilethu/farmlink-Mbutho:app/notifications.tsx
+=======
+    } catch (err) {
+      console.error('Failed to delete notification', err);
+    }
+  };
+
+  // Background animations (same as before)
+>>>>>>> gozilethu/farmlink-Mbutho
   const bgScale1 = useSharedValue(1);
   const bgX1 = useSharedValue(0);
   const bgY1 = useSharedValue(0);
@@ -968,6 +1037,7 @@ export default function NotificationsPage() {
     transform: [{ scale: bgScale2.value }, { translateX: bgX2.value }, { translateY: bgY2.value }],
   }));
 
+<<<<<<< HEAD
 <<<<<<< HEAD:app/tenderNotifications.tsx
 =======
   const onReportSubmitted = useCallback(() => {
@@ -976,6 +1046,8 @@ export default function NotificationsPage() {
   }, []);
 
 >>>>>>> remotes/gozilethu/farmlink-Mbutho:app/notifications.tsx
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -995,6 +1067,7 @@ export default function NotificationsPage() {
       <Animated.View style={[styles.blob, styles.blob1, bgBlob1Style]} />
       <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
 
+<<<<<<< HEAD
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'alerts' && styles.activeTab]}
@@ -1111,10 +1184,125 @@ export default function NotificationsPage() {
             >
               <Text style={styles.reportButtonText}>Report an Outbreak</Text>
             </TouchableOpacity>
+=======
+      <Animated.View entering={FadeIn} style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
+          <Ionicons name="arrow-back" size={20} color="#11181C" />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
+          <Ionicons name="notifications-outline" size={20} color="#22c55e" />
+          <Text style={styles.headerTitle}>Notifications</Text>
+          {unreadCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unreadCount}</Text>
+            </View>
+          )}
+        </View>
+        <TouchableOpacity onPress={() => router.push('/settings')} style={styles.headerButton}>
+          <Ionicons name="settings-outline" size={20} color="#11181C" />
+        </TouchableOpacity>
+      </Animated.View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <Animated.View entering={FadeIn.delay(100)} style={styles.filterContainer}>
+          <View style={styles.filterButtons}>
+            <TouchableOpacity
+              style={[styles.filterButton, filter === 'all' && styles.filterActive]}
+              onPress={() => setFilter('all')}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>All</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterButton, filter === 'unread' && styles.filterActive]}
+              onPress={() => setFilter('unread')}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.filterText, filter === 'unread' && styles.filterTextActive]}>
+                Unread ({unreadCount})
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {unreadCount > 0 && (
+            <TouchableOpacity onPress={markAllAsRead}>
+              <Text style={styles.markAllText}>Mark all read</Text>
+            </TouchableOpacity>
+          )}
+        </Animated.View>
+
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : filteredNotifications.length === 0 ? (
+          <Animated.View entering={FadeIn} style={styles.emptyContainer}>
+            <GlassCard style={styles.emptyCard}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="notifications-outline" size={32} color="#22c55e" />
+              </View>
+              <Text style={styles.emptyText}>No notifications yet</Text>
+            </GlassCard>
+          </Animated.View>
+        ) : (
+          <View style={styles.notificationsList}>
+            {filteredNotifications.map((notification, index) => (
+              <Animated.View
+                key={notification.id}
+                entering={SlideInLeft.delay(index * 50)}
+                exiting={SlideOutRight}
+                layout={Layout.springify()}
+              >
+                <GlassCard style={[styles.notificationCard, !notification.read && styles.unreadCard]}>
+                  <View style={styles.notificationContent}>
+                    <View
+                      style={[
+                        styles.iconContainer,
+                        { backgroundColor: `${notification.iconColor}20` },
+                      ]}
+                    >
+                      <Ionicons name={notification.iconName as any} size={20} color={notification.iconColor} />
+                    </View>
+                    <View style={styles.textContainer}>
+                      <View style={styles.titleRow}>
+                        <Text style={[styles.title, !notification.read && styles.titleUnread]}>
+                          {notification.title}
+                        </Text>
+                        <Text style={styles.time}>{notification.time}</Text>
+                      </View>
+                      <Text style={styles.message} numberOfLines={2}>
+                        {notification.message}
+                      </Text>
+                      <View style={styles.actions}>
+                        {!notification.read && (
+                          <TouchableOpacity onPress={() => markAsRead(notification.id)}>
+                            <Text style={styles.actionText}>Mark as read</Text>
+                          </TouchableOpacity>
+                        )}
+                        {notification.actionUrl && (
+                          <Link href={notification.actionUrl as any} asChild>
+                            <TouchableOpacity>
+                              <Text style={styles.actionText}>View</Text>
+                            </TouchableOpacity>
+                          </Link>
+                        )}
+                        <TouchableOpacity
+                          onPress={() => deleteNotification(notification.id)}
+                          style={styles.deleteButton}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#9ca3af" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                </GlassCard>
+              </Animated.View>
+            ))}
+>>>>>>> gozilethu/farmlink-Mbutho
           </View>
         )}
       </ScrollView>
 
+<<<<<<< HEAD
       <Modal
         visible={showReportModal}
         animationType="slide"
@@ -1126,21 +1314,27 @@ export default function NotificationsPage() {
         </SafeAreaView>
       </Modal>
 
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
       <BottomNav />
     </View>
   );
 }
 
+<<<<<<< HEAD
 <<<<<<< HEAD:app/tenderNotifications.tsx
 =======
 // ------------------ Styles for Notifications Page ------------------
 >>>>>>> remotes/gozilethu/farmlink-Mbutho:app/notifications.tsx
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   blob: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.2)' },
   blob1: { width: 200, height: 200, top: -50, left: -50 },
   blob2: { width: 250, height: 250, bottom: -50, right: -50 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+<<<<<<< HEAD
   tabBar: {
     flexDirection: 'row',
     backgroundColor: '#fff',
@@ -1155,6 +1349,25 @@ const styles = StyleSheet.create({
   activeTab: { backgroundColor: '#f0fdf4' },
   tabText: { fontSize: 14, fontWeight: '500', color: '#9ca3af' },
   activeTabText: { color: '#22c55e' },
+=======
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
+  errorText: { fontSize: 14, color: '#ef4444' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.3)',
+  },
+  headerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.5)', alignItems: 'center', justifyContent: 'center' },
+  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: '#11181C' },
+  badge: { backgroundColor: '#22c55e', borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, minWidth: 20, alignItems: 'center' },
+  badgeText: { fontSize: 10, fontWeight: '600', color: 'white' },
+>>>>>>> gozilethu/farmlink-Mbutho
   scrollContent: { flexGrow: 1, paddingBottom: 80 },
   filterContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 16, marginBottom: 16 },
   filterButtons: { flexDirection: 'row', gap: 8 },
@@ -1181,9 +1394,12 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   actionText: { fontSize: 11, fontWeight: '500', color: '#22c55e' },
   deleteButton: { marginLeft: 'auto', padding: 4 },
+<<<<<<< HEAD
   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
   errorText: { fontSize: 14, color: '#ef4444' },
   outbreakContainer: { flex: 1, paddingHorizontal: 0 },
   reportButton: { backgroundColor: '#22c55e', margin: 16, padding: 14, borderRadius: 12, alignItems: 'center' },
   reportButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
 });

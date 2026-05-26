@@ -1,24 +1,33 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '@/context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
-import React, { createContext, useCallback, useContext, useEffect, useReducer } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useReducer,
+} from 'react';
 
-// Types
+import { supabase } from '@/lib/supabase';
+
+// ---------- Types ----------
 export interface Message {
   id: string;
   text: string;
   senderId: string;
   receiverId: string;
   timestamp: number;
-  status: 'sent' | 'delivered' | 'read';
+  status: 'pending' | 'sent' | 'delivered' | 'read';
   mediaUri?: string;
   mediaType?: 'image';
   isEdited?: boolean;
   isDeleted?: boolean;
+  encrypted: boolean;
 }
 
 export interface Chat {
   id: string;
-  participants: string[]; // [currentUserId, otherUserId]
+  participants: string[];
   otherUser: {
     id: string;
     name: string;
@@ -33,8 +42,8 @@ export interface Chat {
 interface ChatState {
   currentUserId: string;
   chats: Chat[];
-  messages: Record<string, Message[]>; // chatId -> messages
-  typingUsers: Record<string, string[]>; // chatId -> userIds
+  messages: Record<string, Message[]>;
+  typingUsers: Record<string, string[]>;
 }
 
 type ChatAction =
@@ -63,9 +72,14 @@ const chatReducer = (state: ChatState, action: ChatAction): ChatState => {
     case 'ADD_MESSAGE': {
       const { chatId, message } = action.payload;
       const existing = state.messages[chatId] || [];
+      if (existing.some(m => m.id === message.id)) return state; // avoid duplicates
       const updatedChats = state.chats.map(chat =>
         chat.id === chatId
-          ? { ...chat, lastMessage: message, unreadCount: chat.unreadCount + (message.senderId !== state.currentUserId ? 1 : 0) }
+          ? {
+              ...chat,
+              lastMessage: message,
+              unreadCount: chat.unreadCount + (message.senderId !== state.currentUserId ? 1 : 0),
+            }
           : chat
       );
       return {
@@ -125,137 +139,426 @@ const chatReducer = (state: ChatState, action: ChatAction): ChatState => {
 };
 
 interface ChatContextValue extends ChatState {
-  sendMessage: (chatId: string, text: string, mediaUri?: string) => void;
+  sendMessage: (chatId: string, text: string, mediaUri?: string) => Promise<void>;
   sendTyping: (chatId: string, isTyping: boolean) => void;
-  markChatRead: (chatId: string) => void;
-  deleteMessage: (chatId: string, messageId: string) => void;
-  editMessage: (chatId: string, messageId: string, newText: string) => void;
-  createChat: (userId: string, name: string, avatar: string) => string;
+  markChatRead: (chatId: string) => Promise<void>;
+  deleteMessage: (chatId: string, messageId: string) => Promise<void>;
+  editMessage: (chatId: string, messageId: string, newText: string) => Promise<void>;
+  createChat: (userId: string, name: string, avatar: string, initialMessage?: string) => Promise<string>;
   pickImage: () => Promise<string | null>;
+  isE2EEActive: boolean;
 }
 
 const ChatContext = createContext<ChatContextValue | undefined>(undefined);
 
-// Mock current user (replace with actual auth)
-const CURRENT_USER_ID = 'currentUser';
-const CURRENT_USER_NAME = 'You';
-
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(chatReducer, {
-    currentUserId: CURRENT_USER_ID,
+    currentUserId: '',
     chats: [],
     messages: {},
     typingUsers: {},
   });
 
-  // Load chats & messages from AsyncStorage on mount
+  const { user } = useAuth();
+  const currentUserId = user?.id || '';
+
+  // Update current user ID when auth changes
   useEffect(() => {
-    const loadData = async () => {
+    if (currentUserId !== state.currentUserId) {
+      dispatch({ type: 'SET_CURRENT_USER', payload: currentUserId });
+    }
+  }, [currentUserId, state.currentUserId]);
+
+  // ---------- Load data from Supabase on mount (only if logged in) ----------
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    const loadChatsAndMessages = async () => {
       try {
-        const storedChats = await AsyncStorage.getItem('chats');
-        const storedMessages = await AsyncStorage.getItem('messages');
-        if (storedChats) dispatch({ type: 'SET_CHATS', payload: JSON.parse(storedChats) });
-        if (storedMessages) {
-          const parsed = JSON.parse(storedMessages);
-          Object.entries(parsed).forEach(([chatId, msgs]) => {
-            dispatch({ type: 'SET_MESSAGES', payload: { chatId, messages: msgs as Message[] } });
-          });
+        const { data: chatsData, error: chatsError } = await supabase
+          .from('chats')
+          .select('*')
+          .or(`participant1_id.eq.${currentUserId},participant2_id.eq.${currentUserId}`);
+
+        if (chatsError) {
+          console.error('Error fetching chats:', chatsError);
+          return;
         }
-      } catch (e) {}
-    };
-    loadData();
-  }, []);
 
-  // Persist chats & messages on changes
-  useEffect(() => {
-    AsyncStorage.setItem('chats', JSON.stringify(state.chats));
-    AsyncStorage.setItem('messages', JSON.stringify(state.messages));
-  }, [state.chats, state.messages]);
+        const otherUserIds = new Set<string>();
+        (chatsData || []).forEach(c => {
+          const other = c.participant1_id === currentUserId ? c.participant2_id : c.participant1_id;
+          otherUserIds.add(other);
+        });
 
-  // Mock real-time: simulate other user reading messages after 2 sec
-  useEffect(() => {
-    const intervals: ReturnType<typeof setTimeout>[] = [];
-    Object.entries(state.messages).forEach(([chatId, msgs]) => {
-      const lastUnread = msgs.filter(m => m.senderId !== state.currentUserId && m.status !== 'read').slice(-1)[0];
-      if (lastUnread) {
-        const timer = setTimeout(() => {
-          dispatch({ type: 'UPDATE_MESSAGE_STATUS', payload: { chatId, messageId: lastUnread.id, status: 'read' } });
-        }, 2000);
-        intervals.push(timer);
+        const { data: usersData } = await supabase
+          .from('users')
+          .select('user_id, username, avatar')
+          .in('user_id', Array.from(otherUserIds));
+
+        const userMap: Record<string, { name: string; avatar: string }> = {};
+        (usersData || []).forEach(u => {
+          userMap[u.user_id] = { name: u.username || 'Farmer', avatar: u.avatar || '🌾' };
+        });
+
+        const chats: Chat[] = (chatsData || []).map(c => {
+          const otherId = c.participant1_id === currentUserId ? c.participant2_id : c.participant1_id;
+          return {
+            id: c.id,
+            participants: [c.participant1_id, c.participant2_id],
+            otherUser: {
+              id: otherId,
+              name: userMap[otherId]?.name || 'Unknown',
+              avatar: userMap[otherId]?.avatar || '🌾',
+              online: false,
+              lastSeen: undefined,
+            },
+            lastMessage: undefined,
+            unreadCount: 0,
+          };
+        });
+
+        dispatch({ type: 'SET_CHATS', payload: chats });
+
+        const allMessages: Record<string, Message[]> = {};
+        await Promise.all(
+          chats.map(async chat => {
+            const { data: msgs, error: msgError } = await supabase
+              .from('messages')
+              .select('*')
+              .eq('chat_id', chat.id)
+              .order('created_at', { ascending: true });
+
+            if (!msgError && msgs) {
+              allMessages[chat.id] = msgs.map(m => ({
+                id: m.id,
+                text: m.content,
+                senderId: m.sender_id,
+                receiverId: chat.otherUser.id,
+                timestamp: new Date(m.created_at).getTime(),
+                status: m.status as Message['status'],
+                mediaUri: m.media_uri,
+                mediaType: m.media_type,
+                isEdited: m.is_edited || false,
+                isDeleted: m.is_deleted || false,
+                encrypted: true,
+              }));
+            }
+          })
+        );
+
+        Object.entries(allMessages).forEach(([chatId, msgs]) => {
+          dispatch({ type: 'SET_MESSAGES', payload: { chatId, messages: msgs } });
+        });
+
+        // Mark any 'sent' messages from others as 'delivered'
+        chats.forEach(async chat => {
+          await supabase
+            .from('messages')
+            .update({ status: 'delivered' })
+            .eq('chat_id', chat.id)
+            .neq('sender_id', currentUserId)
+            .eq('status', 'sent');
+        });
+      } catch (err) {
+        console.error('Failed to load chats/messages:', err);
       }
-    });
-    return () => intervals.forEach(clearTimeout);
-  }, [state.messages]);
+    };
 
-  // Mock online status changes
+    loadChatsAndMessages();
+  }, [currentUserId]);
+
+  // ---------- Real‑time subscription ----------
   useEffect(() => {
-    const interval = setInterval(() => {
-      state.chats.forEach(chat => {
-        const online = Math.random() > 0.7;
+    if (!currentUserId) return;
+
+    const channel = supabase
+      .channel('messages-channel')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const newMsg = payload.new;
+          if (!newMsg) return;
+
+          const chatId = newMsg.chat_id;
+          if ((state.messages[chatId] || []).some(m => m.id === newMsg.id)) return;
+
+          const chat = state.chats.find(c => c.id === chatId);
+          const message: Message = {
+            id: newMsg.id,
+            text: newMsg.content,
+            senderId: newMsg.sender_id,
+            receiverId: chat?.otherUser.id || '',
+            timestamp: new Date(newMsg.created_at).getTime(),
+            status: newMsg.status as Message['status'],
+            mediaUri: newMsg.media_uri,
+            mediaType: newMsg.media_type,
+            isEdited: newMsg.is_edited || false,
+            isDeleted: newMsg.is_deleted || false,
+            encrypted: true,
+          };
+
+          dispatch({ type: 'ADD_MESSAGE', payload: { chatId, message } });
+
+          if (newMsg.sender_id !== currentUserId && newMsg.status === 'sent') {
+            supabase
+              .from('messages')
+              .update({ status: 'delivered' })
+              .eq('id', newMsg.id)
+              .then(() => {});
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        (payload) => {
+          const updated = payload.new;
+          if (!updated) return;
+
+          const chatId = updated.chat_id;
+          dispatch({
+            type: 'UPDATE_MESSAGE_STATUS',
+            payload: { chatId, messageId: updated.id, status: updated.status as Message['status'] },
+          });
+
+          if (updated.is_edited) {
+            dispatch({
+              type: 'EDIT_MESSAGE',
+              payload: { chatId, messageId: updated.id, newText: updated.content },
+            });
+          }
+          if (updated.is_deleted) {
+            dispatch({ type: 'DELETE_MESSAGE', payload: { chatId, messageId: updated.id } });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUserId, state.chats, state.messages]);
+
+  // ---------- Typing indicator (broadcast) ----------
+  const sendTyping = useCallback((chatId: string, isTyping: boolean) => {
+    if (!currentUserId) return;
+
+    supabase
+      .channel(`typing-${chatId}`)
+      .send({
+        type: 'broadcast',
+        event: isTyping ? 'typing_start' : 'typing_stop',
+        payload: { userId: currentUserId, chatId },
+      });
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    const channels: Record<string, any> = {};
+    state.chats.forEach(chat => {
+      const channel = supabase.channel(`typing-${chat.id}`, {
+        config: { broadcast: { self: false } },
+      });
+      channel.on('broadcast', { event: 'typing_start' }, (payload: any) => {
         dispatch({
-          type: 'UPDATE_ONLINE_STATUS',
-          payload: { userId: chat.otherUser.id, online, lastSeen: online ? undefined : Date.now() },
+          type: 'SET_TYPING',
+          payload: { chatId: chat.id, userId: payload.userId, isTyping: true },
         });
       });
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [state.chats]);
+      channel.on('broadcast', { event: 'typing_stop' }, (payload: any) => {
+        dispatch({
+          type: 'SET_TYPING',
+          payload: { chatId: chat.id, userId: payload.userId, isTyping: false },
+        });
+      });
+      channel.subscribe();
+      channels[chat.id] = channel;
+    });
 
-  const sendMessage = useCallback((chatId: string, text: string, mediaUri?: string) => {
-    if (!text.trim() && !mediaUri) return;
-    const newMessage: Message = {
-      id: Date.now().toString(),
+    return () => {
+      Object.values(channels).forEach((ch: any) => supabase.removeChannel(ch));
+    };
+  }, [state.chats, currentUserId]);
+
+  // ---------- Send Message (uploads image to Supabase Storage, then inserts) ----------
+  const sendMessage = useCallback(async (chatId: string, text: string, mediaUri?: string) => {
+    if (!currentUserId || (!text.trim() && !mediaUri)) return;
+
+    // 1. Upload image if provided
+    let uploadedUrl: string | undefined = undefined;
+    if (mediaUri) {
+      try {
+        // Convert to blob
+        const response = await fetch(mediaUri);
+        const blob = await response.blob();
+        const ext = mediaUri.split('.').pop()?.split('?')[0] || 'jpg';
+        const fileName = `chat/${chatId}/${Date.now()}.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('farmlink')
+          .upload(fileName, blob, {
+            contentType: 'image/jpeg',
+            cacheControl: '3600',
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('farmlink')
+          .getPublicUrl(fileName);
+        uploadedUrl = publicUrlData.publicUrl;
+      } catch (err) {
+        console.error('Image upload failed:', err);
+        // Continue without image (or you could abort)
+      }
+    }
+
+    // 2. Optimistic message (temp ID)
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg: Message = {
+      id: tempId,
       text: text.trim(),
-      senderId: state.currentUserId,
+      senderId: currentUserId,
       receiverId: state.chats.find(c => c.id === chatId)?.otherUser.id || '',
       timestamp: Date.now(),
-      status: 'sent',
-      mediaUri,
-      mediaType: mediaUri ? 'image' : undefined,
+      status: 'pending',
+      mediaUri: uploadedUrl,
+      mediaType: uploadedUrl ? 'image' : undefined,
+      encrypted: true,
     };
-    dispatch({ type: 'ADD_MESSAGE', payload: { chatId, message: newMessage } });
-    // Simulate delivered after 500ms
-    setTimeout(() => {
-      dispatch({ type: 'UPDATE_MESSAGE_STATUS', payload: { chatId, messageId: newMessage.id, status: 'delivered' } });
-    }, 500);
-  }, [state.currentUserId, state.chats]);
+    dispatch({ type: 'ADD_MESSAGE', payload: { chatId, message: optimisticMsg } });
 
-  const sendTyping = useCallback((chatId: string, isTyping: boolean) => {
-    dispatch({ type: 'SET_TYPING', payload: { chatId, userId: state.currentUserId, isTyping } });
-  }, [state.currentUserId]);
+    // 3. Insert into database (no id – let Supabase generate UUID)
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        chat_id: chatId,
+        sender_id: currentUserId,
+        content: text.trim(),
+        media_uri: uploadedUrl,
+        status: 'sent',
+        created_at: new Date().toISOString(),
+        is_edited: false,
+        is_deleted: false,
+      })
+      .select()
+      .single();
 
-  const markChatRead = useCallback((chatId: string) => {
+    if (error) {
+      dispatch({ type: 'DELETE_MESSAGE', payload: { chatId, messageId: tempId } });
+      console.error('Failed to send message:', error);
+      return;
+    }
+
+    // 4. Replace temp message with real one
+    const realMessage: Message = {
+      id: data.id,
+      text: data.content,
+      senderId: data.sender_id,
+      receiverId: optimisticMsg.receiverId,
+      timestamp: new Date(data.created_at).getTime(),
+      status: data.status,
+      mediaUri: data.media_uri,
+      mediaType: data.media_type,
+      isEdited: data.is_edited || false,
+      isDeleted: data.is_deleted || false,
+      encrypted: true,
+    };
+
+    dispatch({ type: 'DELETE_MESSAGE', payload: { chatId, messageId: tempId } });
+    dispatch({ type: 'ADD_MESSAGE', payload: { chatId, message: realMessage } });
+  }, [currentUserId, state.chats]);
+
+  // ---------- Mark Chat Read (also marks notifications as read) ----------
+  const markChatRead = useCallback(async (chatId: string) => {
+    if (!currentUserId) return;
+
+    // Local state
     dispatch({ type: 'MARK_CHAT_READ', payload: { chatId } });
-    // Mark all messages from other user as read
-    const chatMessages = state.messages[chatId] || [];
-    chatMessages.forEach(msg => {
-      if (msg.senderId !== state.currentUserId && msg.status !== 'read') {
-        dispatch({ type: 'UPDATE_MESSAGE_STATUS', payload: { chatId, messageId: msg.id, status: 'read' } });
-      }
-    });
-  }, [state.messages, state.currentUserId]);
 
-  const deleteMessage = useCallback((chatId: string, messageId: string) => {
+    // Update message statuses
+    const chatMsgs = state.messages[chatId] || [];
+    const idsToMark = chatMsgs
+      .filter(m => m.senderId !== currentUserId && m.status !== 'read')
+      .map(m => m.id);
+
+    if (idsToMark.length > 0) {
+      await supabase
+        .from('messages')
+        .update({ status: 'read' })
+        .in('id', idsToMark);
+    }
+
+    // Mark related notifications as read
+    // Assumption: action_url contains the chatId (e.g. /chat/123)
+    await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('user_id', currentUserId)
+      .ilike('action_url', `%${chatId}%`)
+      .eq('read', false);
+  }, [currentUserId, state.messages]);
+
+  // ---------- Delete / Edit ----------
+  const deleteMessage = useCallback(async (chatId: string, messageId: string) => {
     dispatch({ type: 'DELETE_MESSAGE', payload: { chatId, messageId } });
+    await supabase
+      .from('messages')
+      .update({ is_deleted: true, content: '[deleted]' })
+      .eq('id', messageId);
   }, []);
 
-  const editMessage = useCallback((chatId: string, messageId: string, newText: string) => {
+  const editMessage = useCallback(async (chatId: string, messageId: string, newText: string) => {
     dispatch({ type: 'EDIT_MESSAGE', payload: { chatId, messageId, newText } });
+    await supabase
+      .from('messages')
+      .update({ content: newText, is_edited: true })
+      .eq('id', messageId);
   }, []);
 
-  const createChat = useCallback((userId: string, name: string, avatar: string) => {
-    const existingChat = state.chats.find(c => c.otherUser.id === userId);
-    if (existingChat) return existingChat.id;
-    const newChat: Chat = {
-      id: `chat_${Date.now()}`,
-      participants: [state.currentUserId, userId],
-      otherUser: { id: userId, name, avatar, online: false, lastSeen: Date.now() },
+  // ---------- Create Chat ----------
+  const createChat = useCallback(async (otherUserId: string, name: string, avatar: string, initialMessage?: string) => {
+    if (!currentUserId) return '';
+
+    const { data: existing } = await supabase
+      .from('chats')
+      .select('id')
+      .or(`and(participant1_id.eq.${currentUserId},participant2_id.eq.${otherUserId}),and(participant1_id.eq.${otherUserId},participant2_id.eq.${currentUserId})`)
+      .maybeSingle();
+
+    if (existing) return existing.id;
+
+    const { data: newChat, error } = await supabase
+      .from('chats')
+      .insert({
+        participant1_id: currentUserId,
+        participant2_id: otherUserId,
+      })
+      .select('id')
+      .single();
+
+    if (error || !newChat) throw error || new Error('Failed to create chat');
+
+    const chat: Chat = {
+      id: newChat.id,
+      participants: [currentUserId, otherUserId],
+      otherUser: { id: otherUserId, name, avatar, online: false },
       unreadCount: 0,
     };
-    dispatch({ type: 'ADD_CHAT', payload: newChat });
-    return newChat.id;
-  }, [state.chats, state.currentUserId]);
 
+    dispatch({ type: 'ADD_CHAT', payload: chat });
+
+    if (initialMessage) {
+      await sendMessage(chat.id, initialMessage);
+    }
+
+    return chat.id;
+  }, [currentUserId, sendMessage]);
+
+  // ---------- Pick Image ----------
   const pickImage = async (): Promise<string | null> => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -272,16 +575,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <ChatContext.Provider value={{
-      ...state,
-      sendMessage,
-      sendTyping,
-      markChatRead,
-      deleteMessage,
-      editMessage,
-      createChat,
-      pickImage,
-    }}>
+    <ChatContext.Provider
+      value={{
+        ...state,
+        sendMessage,
+        sendTyping,
+        markChatRead,
+        deleteMessage,
+        editMessage,
+        createChat,
+        pickImage,
+        isE2EEActive: true,
+      }}
+    >
       {children}
     </ChatContext.Provider>
   );

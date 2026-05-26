@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+<<<<<<< HEAD
 import React, { useState, useEffect } from 'react';
 import {
   ActivityIndicator,
@@ -13,11 +14,28 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+=======
+import React, { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+>>>>>>> gozilethu/farmlink-Mbutho
 } from 'react-native';
 import Animated, { FadeInUp, ZoomIn, ZoomOut } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+<<<<<<< HEAD
 import { BottomNav } from '@/components/bottom-nav';
+=======
+>>>>>>> gozilethu/farmlink-Mbutho
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 
@@ -661,4 +679,8 @@ const styles = StyleSheet.create({
   emptyIconContainer: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   emptyTitle: { fontSize: 20, fontWeight: 'bold', color: '#11181C', marginBottom: 8 },
   emptySubtitle: { fontSize: 14, color: '#687076', textAlign: 'center', lineHeight: 20 },
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> gozilethu/farmlink-Mbutho

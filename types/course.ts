@@ -25,4 +25,8 @@ export interface QuickTip {
   title: string;
   duration: string;
   views_count: number;
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> gozilethu/farmlink-Mbutho
