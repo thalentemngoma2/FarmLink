@@ -1,19 +1,26 @@
-import React, { createContext, ReactNode, useContext, useEffect, useRef, useState } from 'react';
+import React, {
+    createContext,
+    ReactNode,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 import {
-  Dimensions,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
-} from 'react-native';
+    Dimensions,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View,
+} from "react-native";
 import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming
-} from 'react-native-reanimated';
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
+    withTiming,
+} from "react-native-reanimated";
 
 // -----------------------------------------------------------------------------
 // Types & Context
@@ -25,11 +32,14 @@ type PopoverContextValue = {
   setAnchorPosition: (pos: any) => void;
 };
 
-const PopoverContext = createContext<PopoverContextValue | undefined>(undefined);
+const PopoverContext = createContext<PopoverContextValue | undefined>(
+  undefined,
+);
 
 const usePopover = () => {
   const ctx = useContext(PopoverContext);
-  if (!ctx) throw new Error('Popover components must be used within a <Popover />');
+  if (!ctx)
+    throw new Error("Popover components must be used within a <Popover />");
   return ctx;
 };
 
@@ -68,9 +78,7 @@ export const Popover: React.FC<PopoverProps> = ({
   const value = { open, setOpen, anchorPosition, setAnchorPosition };
 
   return (
-    <PopoverContext.Provider value={value}>
-      {children}
-    </PopoverContext.Provider>
+    <PopoverContext.Provider value={value}>{children}</PopoverContext.Provider>
   );
 };
 
@@ -124,7 +132,11 @@ export const PopoverTrigger: React.FC<PopoverTriggerProps> = ({ children }) => {
   };
 
   return (
-    <TouchableOpacity ref={triggerRef} onPress={handlePress} activeOpacity={0.7}>
+    <TouchableOpacity
+      ref={triggerRef}
+      onPress={handlePress}
+      activeOpacity={0.7}
+    >
       {children}
     </TouchableOpacity>
   );
@@ -135,14 +147,14 @@ export const PopoverTrigger: React.FC<PopoverTriggerProps> = ({ children }) => {
 // -----------------------------------------------------------------------------
 interface PopoverContentProps {
   children: ReactNode;
-  align?: 'start' | 'center' | 'end';
+  align?: "start" | "center" | "end";
   sideOffset?: number;
   style?: any;
 }
 
 export const PopoverContent: React.FC<PopoverContentProps> = ({
   children,
-  align = 'center',
+  align = "center",
   sideOffset = 4,
   style,
 }) => {
@@ -150,7 +162,7 @@ export const PopoverContent: React.FC<PopoverContentProps> = ({
   const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
   const scaleAnim = useSharedValue(0.95);
   const opacityAnim = useSharedValue(0);
-  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
   useEffect(() => {
     if (open) {
@@ -174,9 +186,9 @@ export const PopoverContent: React.FC<PopoverContentProps> = ({
 
   // Determine position
   let left = anchorPosition.x;
-  if (align === 'center') {
+  if (align === "center") {
     left = anchorPosition.x + anchorPosition.width / 2 - contentSize.width / 2;
-  } else if (align === 'end') {
+  } else if (align === "end") {
     left = anchorPosition.x + anchorPosition.width - contentSize.width;
   }
 
@@ -197,14 +209,19 @@ export const PopoverContent: React.FC<PopoverContentProps> = ({
   if (!open) return null;
 
   return (
-    <Modal transparent visible={open} animationType="none" onRequestClose={handleClose}>
+    <Modal
+      transparent
+      visible={open}
+      animationType="none"
+      onRequestClose={handleClose}
+    >
       <TouchableWithoutFeedback onPress={handleClose}>
-        <View style={StyleSheet.absoluteFillObject} />
+        <View style={StyleSheet.absoluteFill} />
       </TouchableWithoutFeedback>
       <Animated.View
         style={StyleSheet.flatten([
           styles.content,
-          { left, top, position: 'absolute' },
+          { left, top, position: "absolute" },
           animatedStyle,
           style,
         ])}
@@ -223,11 +240,11 @@ export const PopoverContent: React.FC<PopoverContentProps> = ({
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   content: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
+    borderColor: "#e5e7eb",
+    boxShadow: "0px 2px 8px rgba(0,0,0,0.1)",
     elevation: 5,
     width: 280, // default width (can be overridden via style)
     maxHeight: 300,

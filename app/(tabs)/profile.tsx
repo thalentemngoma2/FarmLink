@@ -7,25 +7,26 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { AuthPromptModal } from "@/components/AuthPromptModal";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Animated, {
-  FadeIn,
-  SlideInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
+    FadeIn,
+    SlideInDown,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -71,9 +72,37 @@ export default function ProfilePage() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
   const { user, logout, isLoading: authLoading } = useAuth();
+  // Auth modal state
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState("");
 
   // Determine user role from AuthContext
   const userRole = user?.role || "farmer";
+
+  const requireAuth = useCallback(
+    (action?: string) => {
+      if (!user) {
+        setPendingAction(action || "access this feature");
+        setShowAuthModal(true);
+        return false;
+      }
+      return true;
+    },
+    [user]
+  );
+
+  useEffect(() => {
+    if (!user) {
+      setShowAuthModal(true);
+      setPendingAction("access profile");
+    } else {
+      setShowAuthModal(false);
+    }
+  }, [user]);
+
+  // ---------------------------------------------------------------------------
+  // Load user & stats (with auto‑creation of missing user)
+  // ---------------------------------------------------------------------------
 
   // ---------------------------------------------------------------------------
   // Load user & stats (with auto‑creation of missing user)
@@ -228,6 +257,78 @@ export default function ProfilePage() {
       </SafeAreaView>
     );
   }
+
+  // Guest view
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+        <View style={styles.container}>
+          <LinearGradient
+            colors={["#f0fdf4", "#ffffff", "#ecfdf5"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <View
+            style={{
+              flex: 1,
+              justifyContent: "center",
+              alignItems: "center",
+              padding: 20,
+            }}
+          >
+            <Ionicons name="person-circle-outline" size={64} color="#9ca3af" />
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "bold",
+                color: "#11181C",
+                marginTop: 16,
+              }}
+            >
+              Not Signed In
+            </Text>
+            <Text
+              style={{
+                fontSize: 14,
+                color: "#687076",
+                textAlign: "center",
+                marginTop: 8,
+                marginBottom: 24,
+              }}
+            >
+              Log in or create an account to view and manage your profile.
+            </Text>
+            <TouchableOpacity
+              style={{
+                backgroundColor: "#22c55e",
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+                borderRadius: 20,
+              }}
+              onPress={() => router.push("/login")}
+            >
+              <Text
+                style={{ color: "white", fontWeight: "bold", fontSize: 16 }}
+              >
+                Go to Login
+              </Text>
+            </TouchableOpacity>
+          </View>
+         <BottomNav />
+       </View>
+     </SafeAreaView>
+   );
+
+   {/* Auth Prompt Modal */}
+   {showAuthModal && (
+     <AuthPromptModal
+       visible={showAuthModal}
+       onClose={() => setShowAuthModal(false)}
+       featureName={pendingAction}
+     />
+   )}
+ }
 
   // Fallback if profile not loaded
   const displayProfile = profile || {
@@ -573,11 +674,20 @@ export default function ProfilePage() {
           <Text style={styles.version}>FarmLink v1.0.0</Text>
         </ScrollView>
 
-        <BottomNav />
-      </View>
-    </SafeAreaView>
-  );
-}
+         <BottomNav />
+       </View>
+     </SafeAreaView>
+   );
+ 
+   {/* Auth Prompt Modal */}
+   {showAuthModal && (
+     <AuthPromptModal
+       visible={showAuthModal}
+       onClose={() => setShowAuthModal(false)}
+       featureName={pendingAction}
+     />
+   )}
+ }
 
 // Styles (unchanged)
 const styles = StyleSheet.create({

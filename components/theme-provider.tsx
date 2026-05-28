@@ -1,14 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, {
-    createContext,
-    useContext,
-    useEffect,
-    useState,
-} from 'react';
-import { useColorScheme } from 'react-native';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { useColorScheme } from "react-native";
 
 // Types
-type Theme = 'light' | 'dark' | 'system';
+type Theme = "light" | "dark" | "system";
 type ThemeProviderProps = {
   children: React.ReactNode;
   defaultTheme?: Theme;
@@ -19,16 +14,16 @@ type ThemeProviderProps = {
 type ThemeContextType = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
-  resolvedTheme: 'light' | 'dark'; // The actual theme after system resolution
+  resolvedTheme: "light" | "dark"; // The actual theme after system resolution
 };
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'system',
+  defaultTheme = "system",
   enableSystem = true,
-  storageKey = 'app-theme',
+  storageKey = "app-theme",
 }: ThemeProviderProps) {
   const systemTheme = useColorScheme(); // 'light' | 'dark' | null
   const [theme, setThemeState] = useState<Theme>(defaultTheme);
@@ -39,13 +34,18 @@ export function ThemeProvider({
     const loadTheme = async () => {
       try {
         const savedTheme = await AsyncStorage.getItem(storageKey);
-        if (savedTheme && (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system')) {
+        if (
+          savedTheme &&
+          (savedTheme === "light" ||
+            savedTheme === "dark" ||
+            savedTheme === "system")
+        ) {
           setThemeState(savedTheme as Theme);
         } else {
           setThemeState(defaultTheme);
         }
       } catch (error) {
-        console.warn('Failed to load theme from storage', error);
+        console.warn("Failed to load theme from storage", error);
       } finally {
         setIsLoading(false);
       }
@@ -59,17 +59,19 @@ export function ThemeProvider({
     try {
       await AsyncStorage.setItem(storageKey, newTheme);
     } catch (error) {
-      console.warn('Failed to save theme', error);
+      console.warn("Failed to save theme", error);
     }
   };
 
   // Resolve the actual theme (light/dark) for use in styles
-  const resolvedTheme: 'light' | 'dark' =
-    theme === 'system' && enableSystem
-      ? (systemTheme ?? 'light')
-      : theme === 'light'
-      ? 'light'
-      : 'dark';
+  const resolvedTheme: "light" | "dark" =
+    theme === "system" && enableSystem
+      ? systemTheme === "dark"
+        ? "dark"
+        : "light"
+      : theme === "dark"
+        ? "dark"
+        : "light";
 
   const value: ThemeContextType = {
     theme,
@@ -84,16 +86,14 @@ export function ThemeProvider({
   }
 
   return (
-    <ThemeContext.Provider value={value}>
-      {children}
-    </ThemeContext.Provider>
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
   );
 }
 
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (context === undefined) {
-    throw new Error('useTheme must be used within a ThemeProvider');
+    throw new Error("useTheme must be used within a ThemeProvider");
   }
   return context;
 }

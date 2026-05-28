@@ -1,21 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
-<<<<<<< HEAD
-import { useLocalSearchParams, router } from 'expo-router';
-import React, { useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-=======
-import { router, useLocalSearchParams } from 'expo-router';
-import React, { useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { router, useLocalSearchParams } from "expo-router";
+import { useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -27,35 +12,34 @@ import {
     TextInput,
     TouchableOpacity,
     View,
->>>>>>> gozilethu/farmlink-Mbutho
-} from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import Animated, { FadeInUp } from "react-native-reanimated";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 export default function ApplyToTenderPage() {
   const { id } = useLocalSearchParams();
   const { user } = useAuth();
-  const [proposedPrice, setProposedPrice] = useState('');
-  const [deliveryCommitment, setDeliveryCommitment] = useState('');
-  const [message, setMessage] = useState('');
+  const [proposedPrice, setProposedPrice] = useState("");
+  const [deliveryCommitment, setDeliveryCommitment] = useState("");
+  const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     setErrorMessage(null); // Clear previous errors
     if (!proposedPrice.trim()) {
-      setErrorMessage('Please enter your proposed price');
+      setErrorMessage("Please enter your proposed price");
       return;
     }
     if (!message.trim()) {
-      setErrorMessage('Please write a cover message');
+      setErrorMessage("Please write a cover message");
       return;
     }
     if (!user) {
-      setErrorMessage('You must be logged in to apply');
+      setErrorMessage("You must be logged in to apply");
       return;
     }
 
@@ -63,48 +47,47 @@ export default function ApplyToTenderPage() {
     try {
       // Auto-fix: Ensure the user exists in the public "users" table
       const { data: userCheck } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('user_id', user.id)
+        .from("users")
+        .select("user_id")
+        .eq("user_id", user.id)
         .maybeSingle();
 
       if (!userCheck) {
         const email = user.email ?? `user_${user.id}@placeholder.com`;
-        await supabase.from('users').insert({
+        await supabase.from("users").insert({
           user_id: user.id,
-          username: user.name || 'Farmer',
+          username: user.name || "Farmer",
           email: email,
-          phone_number: '',
-          password_hash: '',
-          role: user.role || 'farmer',
+          phone_number: "",
+          password_hash: "",
+          role: user.role || "farmer",
         });
       }
 
-      const { error } = await supabase
-        .from('tender_applications')
-        .insert({
-          tender_id: id,
-          farmer_id: user.id,
-          proposed_price: proposedPrice,
-          delivery_commitment: deliveryCommitment,
-          message,
-          status: 'pending',
-        });
+      const { error } = await supabase.from("tender_applications").insert({
+        tender_id: id,
+        farmer_id: user.id,
+        proposed_price: proposedPrice,
+        delivery_commitment: deliveryCommitment,
+        message,
+        status: "pending",
+      });
       if (error) {
-        if (error.code === '23505') throw new Error('You have already applied to this tender');
+        if (error.code === "23505")
+          throw new Error("You have already applied to this tender");
         throw error;
       }
-      
-      if (Platform.OS === 'web') {
-        window.alert('Success\n\nYour application has been submitted!');
+
+      if (Platform.OS === "web") {
+        window.alert("Success\n\nYour application has been submitted!");
         router.replace(`/tender/${id}`);
       } else {
-        Alert.alert('Success', 'Your application has been submitted!', [
-          { text: 'OK', onPress: () => router.replace(`/tender/${id}`) },
+        Alert.alert("Success", "Your application has been submitted!", [
+          { text: "OK", onPress: () => router.replace(`/tender/${id}`) },
         ]);
       }
     } catch (error: any) {
-      const msg = error.message || 'Failed to submit application';
+      const msg = error.message || "Failed to submit application";
       setErrorMessage(msg);
     } finally {
       setSubmitting(false);
@@ -112,23 +95,36 @@ export default function ApplyToTenderPage() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.container}
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace(`/tender/${id}`)} style={styles.backButton}>
+          <TouchableOpacity
+            onPress={() =>
+              router.canGoBack()
+                ? router.back()
+                : router.replace(`/tender/${id}`)
+            }
+            style={styles.backButton}
+          >
             <Ionicons name="arrow-back" size={24} color="#11181C" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Apply for Tender</Text>
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           <Animated.View entering={FadeInUp}>
-            <Text style={styles.subtitle}>Submit your offer to the retailer. Your application will be private.</Text>
+            <Text style={styles.subtitle}>
+              Submit your offer to the retailer. Your application will be
+              private.
+            </Text>
 
             {errorMessage && (
               <View style={styles.errorBox}>
@@ -182,7 +178,8 @@ export default function ApplyToTenderPage() {
             <View style={styles.privacyBox}>
               <Ionicons name="lock-closed-outline" size={18} color="#22c55e" />
               <Text style={styles.privacyText}>
-                Your application is private. Only the retailer who posted this tender can see your details.
+                Your application is private. Only the retailer who posted this
+                tender can see your details.
               </Text>
             </View>
           </Animated.View>
@@ -191,7 +188,10 @@ export default function ApplyToTenderPage() {
         {/* Submit Button */}
         <View style={styles.footer}>
           <TouchableOpacity
-            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+            style={[
+              styles.submitButton,
+              submitting && styles.submitButtonDisabled,
+            ]}
             onPress={handleSubmit}
             disabled={submitting}
           >
@@ -211,88 +211,104 @@ export default function ApplyToTenderPage() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#fff' },
-  container: { flex: 1, backgroundColor: '#f9fafb' },
+  safeArea: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: "#f9fafb" },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: "#f3f4f6",
   },
   backButton: { padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#11181C' },
+  headerTitle: { fontSize: 18, fontWeight: "700", color: "#11181C" },
   scrollContent: { padding: 16, paddingBottom: 100 },
-  subtitle: { fontSize: 14, color: '#6b7280', marginBottom: 16, lineHeight: 20 },
-   formCard: {
-     backgroundColor: '#fff',
-     borderRadius: 16,
-     padding: 16,
-     ...Platform.select({ web: { boxShadow: '0px 1px 4px rgba(0,0,0,0.05)' }, default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 } }),
-   },
+  subtitle: {
+    fontSize: 14,
+    color: "#6b7280",
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  formCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    ...Platform.select({
+      web: { boxShadow: "0px 1px 4px rgba(0,0,0,0.05)" },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 1,
+      },
+    }),
+  },
   field: { marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: '600', color: '#11181C', marginBottom: 6 },
+  label: { fontSize: 14, fontWeight: "600", color: "#11181C", marginBottom: 6 },
   input: {
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: "#e5e7eb",
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    color: '#11181C',
-    backgroundColor: '#f9fafb',
+    color: "#11181C",
+    backgroundColor: "#f9fafb",
   },
   textArea: { minHeight: 120, paddingTop: 12 },
   privacyBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#f0fdf4',
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#f0fdf4",
     borderRadius: 12,
     padding: 14,
     marginTop: 16,
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.2)',
+    borderColor: "rgba(34,197,94,0.2)",
   },
-  privacyText: { fontSize: 13, color: '#166534', marginLeft: 10, flex: 1, lineHeight: 18 },
+  privacyText: {
+    fontSize: 13,
+    color: "#166534",
+    marginLeft: 10,
+    flex: 1,
+    lineHeight: 18,
+  },
   footer: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
+    borderTopColor: "#f3f4f6",
     paddingHorizontal: 16,
     paddingVertical: 12,
     paddingBottom: 24,
   },
   submitButton: {
-    backgroundColor: '#22c55e',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#22c55e",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     paddingVertical: 14,
     borderRadius: 40,
   },
   submitButtonDisabled: { opacity: 0.6 },
-  submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  submitButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fef2f2',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fef2f2",
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#fca5a5',
+    borderColor: "#fca5a5",
   },
-  errorText: { color: '#ef4444', fontSize: 14, marginLeft: 8, flex: 1 },
-<<<<<<< HEAD
+  errorText: { color: "#ef4444", fontSize: 14, marginLeft: 8, flex: 1 },
 });
-=======
-});
->>>>>>> gozilethu/farmlink-Mbutho

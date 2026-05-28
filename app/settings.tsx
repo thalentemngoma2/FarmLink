@@ -2,16 +2,20 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -28,7 +32,7 @@ import Animated, {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // -----------------------------------------------------------------------------
-// Types
+// Types (unchanged)
 // -----------------------------------------------------------------------------
 interface PrivacySettings {
   profile_visibility: "public" | "farmers_only" | "private";
@@ -47,7 +51,7 @@ interface PrivacySettings {
   evidence_access_restricted: boolean;
   data_retention_days: number;
   outbreak_alerts: boolean;
-  market_alerts: boolean; // will be tied to subscription
+  market_alerts: boolean;
   message_notifications: boolean;
   system_notifications: boolean;
 }
@@ -75,12 +79,14 @@ const defaultPrivacy: PrivacySettings = {
 };
 
 // -----------------------------------------------------------------------------
-// Subscription plans (ZAR)
+// Subscription plans (unchanged)
 // -----------------------------------------------------------------------------
 const PLANS = [
   {
     name: "Basic",
     price: 49,
+    color: "#22c55e",
+    maxProducts: 3,
     features: [
       "Promote up to 3 products/month",
       "Standard listing visibility",
@@ -91,6 +97,8 @@ const PLANS = [
   {
     name: "Growth",
     price: 99,
+    color: "#3b82f6",
+    maxProducts: 10,
     features: [
       "Promote up to 10 products/month",
       "Priority listing (above Basic)",
@@ -102,6 +110,8 @@ const PLANS = [
   {
     name: "Premium",
     price: 199,
+    color: "#8b5cf6",
+    maxProducts: Infinity,
     features: [
       "Unlimited product promotions",
       "Top priority placement",
@@ -114,9 +124,115 @@ const PLANS = [
   {
     name: "Pay-Per-Post",
     price: 10,
+    color: "#f97316",
+    maxProducts: 1,
     note: "R10 per single promoted product (valid for 7 days)",
   },
 ];
+
+// -----------------------------------------------------------------------------
+// Helper Components
+// -----------------------------------------------------------------------------
+const AnimatedSwitch = ({
+  value,
+  onValueChange,
+}: {
+  value: boolean;
+  onValueChange: (val: boolean) => void;
+}) => {
+  const translateX = useSharedValue(value ? 20 : 0);
+  const bgColor = useSharedValue(value ? 1 : 0);
+
+  useEffect(() => {
+    translateX.value = withSpring(value ? 20 : 0);
+    bgColor.value = withSpring(value ? 1 : 0);
+  }, [bgColor, translateX, value]);
+
+  const thumbStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+  const trackStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      bgColor.value,
+      [0, 1],
+      ["#e5e7eb", "#22c55e"],
+    ),
+  }));
+
+  return (
+    <TouchableOpacity
+      onPress={() => onValueChange(!value)}
+      activeOpacity={0.7}
+      style={styles.switchContainer}
+    >
+      <Animated.View style={[styles.switchTrack, trackStyle]}>
+        <Animated.View style={[styles.switchThumb, thumbStyle]} />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
+
+const ToggleRow = ({
+  label,
+  description,
+  value,
+  onToggle,
+}: {
+  label: string;
+  description?: string;
+  value: boolean;
+  onToggle: (val: boolean) => void;
+}) => (
+  <View style={styles.settingItem}>
+    <View style={styles.settingText}>
+      <Text style={styles.settingLabel}>{label}</Text>
+      {description && (
+        <Text style={styles.settingDescription}>{description}</Text>
+      )}
+    </View>
+    <AnimatedSwitch value={value} onValueChange={onToggle} />
+  </View>
+);
+
+const NavRow = ({
+  label,
+  description,
+  onPress,
+  danger,
+}: {
+  label: string;
+  description?: string;
+  onPress: () => void;
+  danger?: boolean;
+}) => (
+  <TouchableOpacity
+    style={[styles.settingItem, danger && styles.settingItemDanger]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
+    <View style={styles.settingText}>
+      <Text style={[styles.settingLabel, danger && styles.dangerText]}>
+        {label}
+      </Text>
+      {description && (
+        <Text style={styles.settingDescription}>{description}</Text>
+      )}
+    </View>
+    <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
+  </TouchableOpacity>
+);
+
+const InfoRow = ({ icon, text }: { icon: string; text: string }) => (
+  <View style={styles.infoRow}>
+    <Ionicons
+      name={icon as any}
+      size={20}
+      color="#22c55e"
+      style={{ marginRight: 8 }}
+    />
+    <Text style={styles.infoText}>{text}</Text>
+  </View>
+);
 
 // -----------------------------------------------------------------------------
 // Main Component
@@ -128,7 +244,31 @@ export default function PrivacySecurityPage() {
   const [darkMode, setDarkMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<string>("");
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [promotedProductCount, setPromotedProductCount] = useState(0);
   const loadingTimeout = useRef<any>(null);
+
+  // Fake card form state
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCvv, setCardCvv] = useState("");
+  const [errors, setErrors] = useState<{
+    number?: string;
+    expiry?: string;
+    cvv?: string;
+  }>({});
+
+  // Product form state
+  const [productName, setProductName] = useState("");
+  const [productDescription, setProductDescription] = useState("");
+  const [productPrice, setProductPrice] = useState("");
+  const [productImages, setProductImages] = useState<string[]>([]);
+  const [productVideo, setProductVideo] = useState<string | null>(null);
+  const [uploadingProduct, setUploadingProduct] = useState(false);
 
   // Fallback timeout
   useEffect(() => {
@@ -136,13 +276,7 @@ export default function PrivacySecurityPage() {
     return () => clearTimeout(loadingTimeout.current);
   }, []);
 
-  // Load settings from DB
-  useEffect(() => {
-    if (!user) return;
-    loadSettings();
-  }, [user]);
-
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("user_settings")
@@ -160,7 +294,13 @@ export default function PrivacySecurityPage() {
     } catch (err) {
       console.error("Failed to load settings", err);
     }
-  };
+  }, [user]);
+
+  // Load settings from DB
+  useEffect(() => {
+    if (!user) return;
+    loadSettings();
+  }, [user, loadSettings]);
 
   // Save privacy settings (supabase upsert)
   const savePrivacySettings = async (newSettings: PrivacySettings) => {
@@ -179,7 +319,7 @@ export default function PrivacySecurityPage() {
       Alert.alert("Saved", "Your privacy settings have been updated.");
     } catch (err: any) {
       console.error("Save error:", err);
-      if (err.code === "42703") {
+      if (err.code === "PGRST204" || err.code === "42703") {
         Alert.alert(
           "Saved locally",
           "Add privacy_settings jsonb column to user_settings for permanent storage.",
@@ -201,9 +341,8 @@ export default function PrivacySecurityPage() {
     savePrivacySettings(newSettings);
   };
 
-  // Dark mode toggle – actually apply theme via AuthContext or global state.
-  // This assumes your AuthContext has a setDarkMode method.
-  const { setGlobalDarkMode } = useAuth() as any; // adjust if your context provides this
+  // Dark mode toggle
+  const { setGlobalDarkMode } = useAuth() as any;
   const toggleDarkMode = async (value: boolean) => {
     setDarkMode(value);
     try {
@@ -223,31 +362,216 @@ export default function PrivacySecurityPage() {
   // Handle market alerts toggle
   const handleMarketToggle = (val: boolean) => {
     if (val) {
-      // Show subscription plans
       setShowPlanModal(true);
     } else {
-      // Turn off market alerts
       updateAndSave({ market_alerts: false });
     }
   };
 
+  // Select plan → open payment modal
   const onSelectPlan = (planName: string) => {
+    setSelectedPlan(planName);
     setShowPlanModal(false);
-    // In a real app you would process payment here.
-    // For now we assume subscription is activated.
-    Alert.alert(
-      "Subscribed!",
-      `You selected the ${planName} plan. Market opportunities are now active.`,
-      [
-        {
-          text: "OK",
-          onPress: () => updateAndSave({ market_alerts: true }),
-        },
-      ],
-    );
+    setShowPaymentModal(true);
+    setCardNumber("");
+    setCardExpiry("");
+    setCardCvv("");
+    setErrors({});
+    setPaymentProcessing(false);
   };
 
-  // ---------- Background animations (same as settings page) ----------
+  // Payment form validation
+  const validatePayment = () => {
+    const newErrors: typeof errors = {};
+    if (cardNumber.replace(/\s/g, "").length !== 16) {
+      newErrors.number = "Enter a valid 16‑digit card number";
+    }
+    if (!/^\d{2}\/\d{2}$/.test(cardExpiry)) {
+      newErrors.expiry = "Use MM/YY format";
+    }
+    if (cardCvv.length !== 3) {
+      newErrors.cvv = "CVV must be 3 digits";
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Process fake payment with realistic bank deduction UI
+  const processPayment = async () => {
+    if (!validatePayment()) return;
+
+    setPaymentProcessing(true);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    setPaymentProcessing(false);
+    setShowPaymentModal(false);
+    setShowPaymentSuccess(true);
+    updateAndSave({ market_alerts: true });
+  };
+
+  // Confirm payment success → open product modal with plan limits
+  const handlePaymentSuccessContinue = () => {
+    setShowPaymentSuccess(false);
+    setProductName("");
+    setProductDescription("");
+    setProductPrice("");
+    setProductImages([]);
+    setProductVideo(null);
+    setShowProductModal(true);
+  };
+
+  // Product media picker
+  const pickProductImages = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission needed",
+        "Gallery access is required to upload images.",
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets?.length) {
+      const uris = result.assets.map((a) => a.uri);
+      setProductImages((prev) => [...prev, ...uris]);
+    }
+  };
+
+  const pickProductVideo = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission needed",
+        "Gallery access is required to upload a video.",
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["videos"],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets?.length) {
+      setProductVideo(result.assets[0].uri);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  //  Submit product – now saves to Supabase for community display
+  // ─────────────────────────────────────────────────────────────
+  const submitProduct = async () => {
+    if (
+      !productName.trim() ||
+      !productDescription.trim() ||
+      !productPrice.trim()
+    ) {
+      Alert.alert("Missing information", "Please fill in all product details.");
+      return;
+    }
+
+    const plan = PLANS.find((p) => p.name === selectedPlan);
+    const max = plan?.maxProducts ?? 0;
+    if (promotedProductCount >= max) {
+      Alert.alert(
+        "Limit reached",
+        `Your ${selectedPlan} plan allows up to ${max} promoted product(s).`,
+      );
+      return;
+    }
+
+    setUploadingProduct(true);
+    try {
+      // 1. Upload images to Supabase Storage
+      const imageUrls: string[] = [];
+      for (const uri of productImages) {
+        const fileName = `products/${user?.id}/${Date.now()}_${Math.random().toString(36).substring(2)}.jpg`;
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        const { error } = await supabase.storage
+          .from("farmlink")
+          .upload(fileName, blob, {
+            contentType: "image/jpeg",
+          });
+        if (error) throw new Error(`Image upload failed: ${error.message}`);
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("farmlink").getPublicUrl(fileName);
+        imageUrls.push(publicUrl);
+      }
+
+      // 2. Upload video if present
+      let videoUrl: string | null = null;
+      if (productVideo) {
+        const fileName = `products/${user?.id}/${Date.now()}_video.mp4`;
+        const response = await fetch(productVideo);
+        const blob = await response.blob();
+        const { error } = await supabase.storage
+          .from("farmlink")
+          .upload(fileName, blob, {
+            contentType: "video/mp4",
+          });
+        if (error) throw new Error(`Video upload failed: ${error.message}`);
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("farmlink").getPublicUrl(fileName);
+        videoUrl = publicUrl;
+      }
+
+      // 3. Insert into marketplace_ads
+      const { error: insertError } = await supabase
+        .from("marketplace_ads")
+        .insert({
+          user_id: user!.id,
+          plan_name: selectedPlan,
+          product_name: productName.trim(),
+          description: productDescription.trim(),
+          price: parseFloat(productPrice),
+          images: imageUrls,
+          video_url: videoUrl,
+        });
+
+      if (insertError)
+        throw new Error(`Failed to save ad: ${insertError.message}`);
+
+      // Increment count
+      setPromotedProductCount((prev) => prev + 1);
+      Alert.alert(
+        "Product published",
+        `"${productName}" is now promoted to buyers!`,
+      );
+
+      // If Pay-Per-Post, close modal after one product
+      if (selectedPlan === "Pay-Per-Post") {
+        setShowProductModal(false);
+        return;
+      }
+
+      // Reset form for next product (keep modal open)
+      setProductName("");
+      setProductDescription("");
+      setProductPrice("");
+      setProductImages([]);
+      setProductVideo(null);
+    } catch (err: any) {
+      Alert.alert(
+        "Error",
+        err.message || "Something went wrong while publishing your product.",
+      );
+      console.error("Submit error:", err);
+    } finally {
+      setUploadingProduct(false);
+    }
+  };
+
+  const currentPlan = PLANS.find((p) => p.name === selectedPlan);
+  const maxProducts = currentPlan?.maxProducts ?? 0;
+  const remainingProducts =
+    maxProducts === Infinity ? "Unlimited" : maxProducts - promotedProductCount;
+
+  // ---------- Background animations (unchanged) ----------
   const bgScale1 = useSharedValue(1);
   const bgX1 = useSharedValue(0);
   const bgY1 = useSharedValue(0);
@@ -262,7 +586,7 @@ export default function PrivacySecurityPage() {
     bgScale2.value = withRepeat(withTiming(1, { duration: 25000 }), -1, true);
     bgX2.value = withRepeat(withTiming(-30, { duration: 25000 }), -1, true);
     bgY2.value = withRepeat(withTiming(30, { duration: 25000 }), -1, true);
-  }, []);
+  }, [bgScale1, bgScale2, bgX1, bgX2, bgY1, bgY2]);
 
   const bgBlob1Style = useAnimatedStyle(() => ({
     transform: [
@@ -278,104 +602,6 @@ export default function PrivacySecurityPage() {
       { translateY: bgY2.value },
     ],
   }));
-
-  // ---------- Reanimated Switch ----------
-  const AnimatedSwitch: React.FC<{
-    value: boolean;
-    onValueChange: (val: boolean) => void;
-  }> = ({ value, onValueChange }) => {
-    const translateX = useSharedValue(value ? 20 : 0);
-    const bgColor = useSharedValue(value ? 1 : 0);
-    useEffect(() => {
-      translateX.value = withSpring(value ? 20 : 0);
-      bgColor.value = withSpring(value ? 1 : 0);
-    }, [value]);
-    const thumbStyle = useAnimatedStyle(() => ({
-      transform: [{ translateX: translateX.value }],
-    }));
-    const trackStyle = useAnimatedStyle(() => ({
-      backgroundColor: interpolateColor(
-        bgColor.value,
-        [0, 1],
-        ["#e5e7eb", "#22c55e"],
-      ),
-    }));
-
-    return (
-      <TouchableOpacity
-        onPress={() => onValueChange(!value)}
-        activeOpacity={0.7}
-        style={styles.switchContainer}
-      >
-        <Animated.View style={[styles.switchTrack, trackStyle]}>
-          <Animated.View style={[styles.switchThumb, thumbStyle]} />
-        </Animated.View>
-      </TouchableOpacity>
-    );
-  };
-
-  // ---------- Helper components ----------
-  const ToggleRow = ({
-    label,
-    description,
-    value,
-    onToggle,
-  }: {
-    label: string;
-    description?: string;
-    value: boolean;
-    onToggle: (val: boolean) => void;
-  }) => (
-    <View style={styles.settingItem}>
-      <View style={styles.settingText}>
-        <Text style={styles.settingLabel}>{label}</Text>
-        {description && (
-          <Text style={styles.settingDescription}>{description}</Text>
-        )}
-      </View>
-      <AnimatedSwitch value={value} onValueChange={onToggle} />
-    </View>
-  );
-
-  const NavRow = ({
-    label,
-    description,
-    onPress,
-    danger,
-  }: {
-    label: string;
-    description?: string;
-    onPress: () => void;
-    danger?: boolean;
-  }) => (
-    <TouchableOpacity
-      style={[styles.settingItem, danger && styles.settingItemDanger]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <View style={styles.settingText}>
-        <Text style={[styles.settingLabel, danger && styles.dangerText]}>
-          {label}
-        </Text>
-        {description && (
-          <Text style={styles.settingDescription}>{description}</Text>
-        )}
-      </View>
-      <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
-    </TouchableOpacity>
-  );
-
-  const InfoRow = ({ icon, text }: { icon: string; text: string }) => (
-    <View style={styles.infoRow}>
-      <Ionicons
-        name={icon as any}
-        size={20}
-        color="#22c55e"
-        style={{ marginRight: 8 }}
-      />
-      <Text style={styles.infoText}>{text}</Text>
-    </View>
-  );
 
   // ---------- Not signed in view ----------
   if (!user) {
@@ -435,25 +661,11 @@ export default function PrivacySecurityPage() {
       <Animated.View style={[styles.blob, styles.blob1, bgBlob1Style]} />
       <Animated.View style={[styles.blob, styles.blob2, bgBlob2Style]} />
 
-      <Animated.View entering={FadeIn} style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.headerButton}
-        >
-          <Ionicons name="arrow-back" size={20} color="#11181C" />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Ionicons name="shield-checkmark-outline" size={20} color="#22c55e" />
-          <Text style={styles.headerTitle}>Privacy & Security</Text>
-        </View>
-        <View style={styles.headerPlaceholder} />
-      </Animated.View>
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Dark Mode Toggle – now actually changes the app theme */}
+        {/* Appearance */}
         <Animated.View entering={SlideInDown.delay(20)} style={styles.section}>
           <Text style={styles.sectionTitle}>Appearance</Text>
           <GlassCard style={styles.glassCard}>
@@ -466,7 +678,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 1. Profile Privacy */}
+        {/* Profile Privacy */}
         <Animated.View entering={SlideInDown.delay(50)} style={styles.section}>
           <Text style={styles.sectionTitle}>Profile Privacy</Text>
           <GlassCard style={styles.glassCard}>
@@ -527,7 +739,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 2. Post & Content Visibility */}
+        {/* Post & Content Visibility */}
         <Animated.View entering={SlideInDown.delay(100)} style={styles.section}>
           <Text style={styles.sectionTitle}>Post & Content Visibility</Text>
           <GlassCard style={styles.glassCard}>
@@ -597,7 +809,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 3. Messaging & Communication */}
+        {/* Messaging & Communication */}
         <Animated.View entering={SlideInDown.delay(150)} style={styles.section}>
           <Text style={styles.sectionTitle}>Messaging & Communication</Text>
           <GlassCard style={styles.glassCard}>
@@ -642,7 +854,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 4. Location & Data Sharing */}
+        {/* Location & Data Sharing */}
         <Animated.View entering={SlideInDown.delay(200)} style={styles.section}>
           <Text style={styles.sectionTitle}>Location & Data Sharing</Text>
           <GlassCard style={styles.glassCard}>
@@ -685,7 +897,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 5. AI & Evidence Upload Privacy */}
+        {/* AI & Evidence Privacy */}
         <Animated.View entering={SlideInDown.delay(250)} style={styles.section}>
           <Text style={styles.sectionTitle}>AI & Evidence Privacy</Text>
           <GlassCard style={styles.glassCard}>
@@ -731,7 +943,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 6. Notification Preferences – Market alerts with subscription */}
+        {/* Notification Preferences */}
         <Animated.View entering={SlideInDown.delay(300)} style={styles.section}>
           <Text style={styles.sectionTitle}>Notification Preferences</Text>
           <GlassCard style={styles.glassCard}>
@@ -759,7 +971,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 7. Account Security */}
+        {/* Account Security */}
         <Animated.View entering={SlideInDown.delay(350)} style={styles.section}>
           <Text style={styles.sectionTitle}>Account Security</Text>
           <GlassCard style={styles.glassCard}>
@@ -778,7 +990,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 8. Data Protection & Compliance */}
+        {/* Data Protection & Compliance */}
         <Animated.View entering={SlideInDown.delay(400)} style={styles.section}>
           <Text style={styles.sectionTitle}>Data Protection & Compliance</Text>
           <GlassCard style={styles.glassCard}>
@@ -797,7 +1009,7 @@ export default function PrivacySecurityPage() {
           </GlassCard>
         </Animated.View>
 
-        {/* 9. Data Management */}
+        {/* Data Management */}
         <Animated.View entering={SlideInDown.delay(450)} style={styles.section}>
           <Text style={styles.sectionTitle}>Data Management</Text>
           <GlassCard style={styles.glassCard}>
@@ -819,28 +1031,21 @@ export default function PrivacySecurityPage() {
               description="Permanently delete your account and data"
               danger
               onPress={() => {
-                Alert.alert(
-                  "Delete Account",
-                  "This action is irreversible. All your data will be permanently removed.",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Delete Forever",
-                      style: "destructive",
-                      onPress: () =>
-                        Alert.alert(
-                          "Delete",
-                          "Account deletion requested. You will receive a confirmation email.",
-                        ),
-                    },
-                  ],
-                );
+                Alert.alert("Delete Account", "This action is irreversible.", [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Delete Forever",
+                    style: "destructive",
+                    onPress: () =>
+                      Alert.alert("Delete", "Account deletion requested."),
+                  },
+                ]);
               }}
             />
           </GlassCard>
         </Animated.View>
 
-        {/* 10. Reporting & Safety */}
+        {/* Reporting & Safety */}
         <Animated.View entering={SlideInDown.delay(500)} style={styles.section}>
           <Text style={styles.sectionTitle}>Reporting & Safety</Text>
           <GlassCard style={styles.glassCard}>
@@ -881,11 +1086,16 @@ export default function PrivacySecurityPage() {
               {PLANS.map((plan) => (
                 <TouchableOpacity
                   key={plan.name}
-                  style={styles.planCard}
+                  style={[
+                    styles.planCard,
+                    { borderLeftWidth: 4, borderLeftColor: plan.color },
+                  ]}
                   onPress={() => onSelectPlan(plan.name)}
                 >
                   <Text style={styles.planName}>{plan.name}</Text>
-                  <Text style={styles.planPrice}>R{plan.price}/month</Text>
+                  <Text style={[styles.planPrice, { color: plan.color }]}>
+                    R{plan.price}/month
+                  </Text>
                   {plan.features ? (
                     plan.features.map((f, i) => (
                       <Text key={i} style={styles.planFeature}>
@@ -901,12 +1111,306 @@ export default function PrivacySecurityPage() {
           </View>
         </SafeAreaView>
       </Modal>
+
+      {/* Payment Modal (Fake Ozow Gateway) */}
+      <Modal visible={showPaymentModal} animationType="slide" transparent>
+        <SafeAreaView style={styles.modalOverlay}>
+          <View style={styles.paymentModalContainer}>
+            <GlassCard style={styles.paymentGlassCard}>
+              <View style={styles.ozowBranding}>
+                <Ionicons name="wallet-outline" size={24} color="#16a34a" />
+                <Text style={styles.ozowText}>Ozow</Text>
+              </View>
+
+              <View style={styles.paymentHeader}>
+                <Ionicons name="card-outline" size={28} color="#16a34a" />
+                <Text style={styles.paymentHeaderTitle}>Secure Payment</Text>
+                <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+                  <Ionicons name="close" size={24} color="#111827" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.planSummary}>
+                <Text style={styles.planSummaryLabel}>Plan</Text>
+                <Text style={styles.planSummaryValue}>{selectedPlan}</Text>
+                <Text style={styles.planSummaryLabel}>Amount</Text>
+                <Text style={styles.planSummaryAmount}>
+                  R{PLANS.find((p) => p.name === selectedPlan)?.price || 0}
+                </Text>
+              </View>
+
+              <View style={styles.paymentForm}>
+                <Text style={styles.paymentFormTitle}>Card Details</Text>
+                <Text style={styles.paymentFormNote}>
+                  For testing, use any valid‑looking number. No real bank is
+                  charged.
+                </Text>
+
+                <Text style={styles.inputLabel}>Card Number</Text>
+                <TextInput
+                  style={[styles.input, errors.number && styles.inputError]}
+                  placeholder="0000 0000 0000 0000"
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="number-pad"
+                  maxLength={19}
+                  value={cardNumber}
+                  onChangeText={(t) => {
+                    const cleaned = t.replace(/\D/g, "").slice(0, 16);
+                    const formatted = cleaned.replace(/(\d{4})(?=\d)/g, "$1 ");
+                    setCardNumber(formatted);
+                    setErrors((prev) => ({ ...prev, number: undefined }));
+                  }}
+                />
+                {errors.number && (
+                  <Text style={styles.errorText}>{errors.number}</Text>
+                )}
+
+                <View style={styles.row}>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.inputLabel}>Expiry (MM/YY)</Text>
+                    <TextInput
+                      style={[styles.input, errors.expiry && styles.inputError]}
+                      placeholder="MM/YY"
+                      placeholderTextColor="#9ca3af"
+                      keyboardType="number-pad"
+                      maxLength={5}
+                      value={cardExpiry}
+                      onChangeText={(t) => {
+                        let cleaned = t.replace(/\D/g, "").slice(0, 4);
+                        if (cleaned.length >= 2)
+                          cleaned =
+                            cleaned.slice(0, 2) + "/" + cleaned.slice(2);
+                        setCardExpiry(cleaned);
+                        setErrors((prev) => ({ ...prev, expiry: undefined }));
+                      }}
+                    />
+                    {errors.expiry && (
+                      <Text style={styles.errorText}>{errors.expiry}</Text>
+                    )}
+                  </View>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.inputLabel}>CVV</Text>
+                    <TextInput
+                      style={[styles.input, errors.cvv && styles.inputError]}
+                      placeholder="123"
+                      placeholderTextColor="#9ca3af"
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      value={cardCvv}
+                      onChangeText={(t) => {
+                        const cleaned = t.replace(/\D/g, "").slice(0, 3);
+                        setCardCvv(cleaned);
+                        setErrors((prev) => ({ ...prev, cvv: undefined }));
+                      }}
+                    />
+                    {errors.cvv && (
+                      <Text style={styles.errorText}>{errors.cvv}</Text>
+                    )}
+                  </View>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.payButton,
+                  paymentProcessing && styles.payButtonDisabled,
+                ]}
+                onPress={processPayment}
+                disabled={paymentProcessing}
+              >
+                {paymentProcessing ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.payButtonText}>Pay Now</Text>
+                )}
+              </TouchableOpacity>
+            </GlassCard>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Payment Success Modal */}
+      <Modal visible={showPaymentSuccess} animationType="fade" transparent>
+        <SafeAreaView style={styles.modalOverlay}>
+          <View style={styles.successContainer}>
+            <GlassCard style={styles.successGlassCard}>
+              <Ionicons name="checkmark-circle" size={64} color="#16a34a" />
+              <Text style={styles.successTitle}>Payment Successful</Text>
+              <Text style={styles.successAmount}>
+                R{PLANS.find((p) => p.name === selectedPlan)?.price || 0}{" "}
+                deducted
+              </Text>
+              <View style={styles.successDetails}>
+                <Text style={styles.successDetailText}>
+                  Plan: {selectedPlan}
+                </Text>
+                <Text style={styles.successDetailText}>
+                  Reference: OZOW-
+                  {Math.random().toString(36).substr(2, 9).toUpperCase()}
+                </Text>
+                <Text style={styles.successDetailText}>
+                  Date: {new Date().toLocaleDateString()}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.payButton}
+                onPress={handlePaymentSuccessContinue}
+              >
+                <Text style={styles.payButtonText}>Promote a Product</Text>
+              </TouchableOpacity>
+            </GlassCard>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Product Upload Modal */}
+      <Modal visible={showProductModal} animationType="slide" transparent>
+        <SafeAreaView style={styles.modalOverlay}>
+          <View style={styles.productModalContainer}>
+            <GlassCard style={styles.productGlassCard}>
+              <View style={styles.paymentHeader}>
+                <Ionicons name="add-circle-outline" size={28} color="#16a34a" />
+                <Text style={styles.paymentHeaderTitle}>
+                  Promote Your Product
+                </Text>
+                <TouchableOpacity onPress={() => setShowProductModal(false)}>
+                  <Ionicons name="close" size={24} color="#111827" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.planUsageCard}>
+                <Text style={styles.planUsageText}>
+                  {selectedPlan} plan – {promotedProductCount} of{" "}
+                  {maxProducts === Infinity ? "∞" : maxProducts} products used
+                  this month
+                </Text>
+                <Text style={styles.planUsageRemaining}>
+                  {remainingProducts === "Unlimited"
+                    ? "Unlimited promotions"
+                    : `${remainingProducts} remaining`}
+                </Text>
+              </View>
+
+              <ScrollView
+                style={{ maxHeight: 450 }}
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.inputLabel}>Product Name</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. Fresh Avocados"
+                  placeholderTextColor="#9ca3af"
+                  value={productName}
+                  onChangeText={setProductName}
+                />
+
+                <Text style={[styles.inputLabel, { marginTop: 16 }]}>
+                  Description
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    { height: 80, textAlignVertical: "top" },
+                  ]}
+                  placeholder="Describe your product..."
+                  placeholderTextColor="#9ca3af"
+                  multiline
+                  value={productDescription}
+                  onChangeText={setProductDescription}
+                />
+
+                <Text style={[styles.inputLabel, { marginTop: 16 }]}>
+                  Price (ZAR)
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. 150"
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="decimal-pad"
+                  value={productPrice}
+                  onChangeText={setProductPrice}
+                />
+
+                <Text style={[styles.inputLabel, { marginTop: 16 }]}>
+                  Images
+                </Text>
+                <View style={styles.mediaRow}>
+                  <TouchableOpacity
+                    style={styles.mediaButton}
+                    onPress={pickProductImages}
+                  >
+                    <Ionicons name="images-outline" size={24} color="#16a34a" />
+                    <Text style={styles.mediaButtonText}>Add Images</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.mediaButton}
+                    onPress={pickProductVideo}
+                  >
+                    <Ionicons
+                      name="videocam-outline"
+                      size={24}
+                      color="#16a34a"
+                    />
+                    <Text style={styles.mediaButtonText}>Add Video</Text>
+                  </TouchableOpacity>
+                </View>
+                {productImages.length > 0 && (
+                  <ScrollView
+                    horizontal
+                    style={styles.imagePreviewScroll}
+                    contentContainerStyle={{ gap: 8 }}
+                  >
+                    {productImages.map((uri, idx) => (
+                      <Image
+                        key={idx}
+                        source={{ uri }}
+                        style={styles.previewThumb}
+                      />
+                    ))}
+                  </ScrollView>
+                )}
+                {productVideo && (
+                  <View style={styles.videoPreview}>
+                    <Ionicons name="videocam" size={24} color="#16a34a" />
+                    <Text style={styles.videoText}>Video attached</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[
+                    styles.payButton,
+                    { marginTop: 24 },
+                    uploadingProduct && styles.payButtonDisabled,
+                  ]}
+                  onPress={submitProduct}
+                  disabled={
+                    uploadingProduct ||
+                    (remainingProducts !== "Unlimited" &&
+                      remainingProducts <= 0)
+                  }
+                >
+                  {uploadingProduct ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.payButtonText}>
+                      {remainingProducts === "Unlimited" ||
+                      remainingProducts > 0
+                        ? "Publish Product"
+                        : "Limit Reached"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </GlassCard>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Styles
+// Styles (unchanged)
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
@@ -1031,7 +1535,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   savingText: { color: "#fff", fontSize: 14, marginLeft: 8 },
-  // Modal styles
+  // Plan Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -1061,11 +1565,176 @@ const styles = StyleSheet.create({
     backgroundColor: "#f9fafb",
   },
   planName: { fontSize: 16, fontWeight: "600", color: "#111827" },
-  planPrice: {
-    fontSize: 24,
+  planPrice: { fontSize: 24, fontWeight: "700", marginTop: 4 },
+  planFeature: { fontSize: 13, color: "#374151", marginTop: 6 },
+  // Payment Modal
+  paymentModalContainer: { width: "90%", maxWidth: 400 },
+  paymentGlassCard: {
+    borderRadius: 24,
+    padding: 24,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
+  },
+  ozowBranding: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+    gap: 8,
+  },
+  ozowText: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#16a34a",
+    letterSpacing: 1,
+  },
+  paymentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  paymentHeaderTitle: {
+    fontSize: 20,
     fontWeight: "700",
-    color: "#22c55e",
+    color: "#111827",
+    marginLeft: 8,
+    flex: 1,
+  },
+  planSummary: {
+    backgroundColor: "rgba(34,197,94,0.1)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(34,197,94,0.3)",
+  },
+  planSummaryLabel: { fontSize: 13, color: "#4b5563", marginTop: 4 },
+  planSummaryValue: { fontSize: 18, fontWeight: "700", color: "#111827" },
+  planSummaryAmount: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#16a34a",
     marginTop: 4,
   },
-  planFeature: { fontSize: 13, color: "#374151", marginTop: 6 },
+  paymentForm: { marginBottom: 24 },
+  paymentFormTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 8,
+  },
+  paymentFormNote: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#4b5563",
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "rgba(209,213,219,0.8)",
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    color: "#111827",
+  },
+  inputError: { borderColor: "#ef4444" },
+  errorText: { color: "#ef4444", fontSize: 12, marginTop: 4 },
+  row: { flexDirection: "row", justifyContent: "space-between", marginTop: 16 },
+  halfInput: { flex: 0.48 },
+  payButton: {
+    backgroundColor: "#22c55e",
+    borderRadius: 30,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+    shadowColor: "#22c55e",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  payButtonDisabled: { opacity: 0.6 },
+  payButtonText: { color: "#fff", fontWeight: "700", fontSize: 18 },
+  // Payment Success
+  successContainer: { width: "90%", maxWidth: 400 },
+  successGlassCard: {
+    borderRadius: 24,
+    padding: 32,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
+  },
+  successTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#16a34a",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  successAmount: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: 16,
+  },
+  successDetails: { width: "100%", marginBottom: 24 },
+  successDetailText: { fontSize: 14, color: "#4b5563", marginBottom: 4 },
+  // Product Modal
+  productModalContainer: { width: "90%", maxWidth: 400 },
+  productGlassCard: {
+    borderRadius: 24,
+    padding: 24,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
+  },
+  planUsageCard: {
+    backgroundColor: "rgba(34,197,94,0.08)",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(34,197,94,0.2)",
+  },
+  planUsageText: { fontSize: 14, fontWeight: "500", color: "#166534" },
+  planUsageRemaining: { fontSize: 13, color: "#4b5563", marginTop: 4 },
+  mediaRow: { flexDirection: "row", gap: 12, marginTop: 12 },
+  mediaButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: "rgba(255,255,255,0.8)",
+  },
+  mediaButtonText: { fontSize: 14, fontWeight: "500", color: "#111827" },
+  imagePreviewScroll: { marginTop: 12 },
+  previewThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    resizeMode: "cover",
+  },
+  videoPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+  },
+  videoText: { fontSize: 14, color: "#4b5563" },
 });

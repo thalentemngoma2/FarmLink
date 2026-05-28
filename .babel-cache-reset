@@ -1,0 +1,5 @@
+# This file marks that babel configuration was updated
+
+# Metro cache needs to be cleared for the changes to take effect
+
+# Run: expo start -c

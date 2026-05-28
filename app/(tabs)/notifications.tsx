@@ -1242,7 +1242,7 @@ export default function NotificationsPage() {
 
       <TouchableOpacity
         style={styles.aiFab}
-        onPress={() => router.push("/ai")}
+        onPress={() => router.push("/ai_scan_index")}
         activeOpacity={0.8}
       >
         <Ionicons name="sparkles" size={24} color="#fff" />

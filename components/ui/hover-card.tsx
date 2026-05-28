@@ -1,4 +1,4 @@
-import React, { ReactNode, useEffect, useRef, useState } from 'react';
+import React, { ReactNode, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -7,13 +7,13 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
-} from 'react-native';
+} from "react-native";
 
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
-type Align = 'start' | 'center' | 'end';
-type Side = 'top' | 'right' | 'bottom' | 'left';
+type Align = "start" | "center" | "end";
+type Side = "top" | "right" | "bottom" | "left";
 
 interface HoverCardProps {
   children: ReactNode;
@@ -45,11 +45,14 @@ type HoverCardContextValue = {
   setTriggerPosition: (pos: any) => void;
 };
 
-const HoverCardContext = React.createContext<HoverCardContextValue | undefined>(undefined);
+const HoverCardContext = React.createContext<HoverCardContextValue | undefined>(
+  undefined,
+);
 
 const useHoverCard = () => {
   const ctx = React.useContext(HoverCardContext);
-  if (!ctx) throw new Error('HoverCard components must be used within <HoverCard>');
+  if (!ctx)
+    throw new Error("HoverCard components must be used within <HoverCard>");
   return ctx;
 };
 
@@ -90,7 +93,9 @@ export const HoverCard: React.FC<HoverCardProps> = ({
 // -----------------------------------------------------------------------------
 // HoverCardTrigger
 // -----------------------------------------------------------------------------
-export const HoverCardTrigger: React.FC<HoverCardTriggerProps> = ({ children }) => {
+export const HoverCardTrigger: React.FC<HoverCardTriggerProps> = ({
+  children,
+}) => {
   const { setOpen, setTriggerPosition, open } = useHoverCard();
   const triggerRef = useRef<View>(null);
 
@@ -106,7 +111,11 @@ export const HoverCardTrigger: React.FC<HoverCardTriggerProps> = ({ children }) 
   };
 
   return (
-    <TouchableOpacity ref={triggerRef} onPress={handlePress} activeOpacity={0.7}>
+    <TouchableOpacity
+      ref={triggerRef}
+      onPress={handlePress}
+      activeOpacity={0.7}
+    >
       {children}
     </TouchableOpacity>
   );
@@ -117,7 +126,7 @@ export const HoverCardTrigger: React.FC<HoverCardTriggerProps> = ({ children }) 
 // -----------------------------------------------------------------------------
 export const HoverCardContent: React.FC<HoverCardContentProps> = ({
   children,
-  align = 'center',
+  align = "center",
   sideOffset = 4,
   style,
 }) => {
@@ -148,33 +157,34 @@ export const HoverCardContent: React.FC<HoverCardContentProps> = ({
 
   if (!open) return null;
 
-  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
   // Calculate x position based on align
   let left = triggerPosition.x;
-  if (align === 'center') {
-    left = triggerPosition.x + triggerPosition.width / 2 - contentSize.width / 2;
-  } else if (align === 'end') {
+  if (align === "center") {
+    left =
+      triggerPosition.x + triggerPosition.width / 2 - contentSize.width / 2;
+  } else if (align === "end") {
     left = triggerPosition.x + triggerPosition.width - contentSize.width;
   }
 
   // Default position: below the trigger
   let top = triggerPosition.y + triggerPosition.height + sideOffset;
-  let side: Side = 'bottom';
+  let side: Side = "bottom";
 
   // If it would go off screen, place above
   if (top + contentSize.height > screenHeight) {
     top = triggerPosition.y - contentSize.height - sideOffset;
-    side = 'top';
+    side = "top";
   }
 
   // Adjust horizontally if off screen
   if (left < 0) left = 8;
-  if (left + contentSize.width > screenWidth) left = screenWidth - contentSize.width - 8;
+  if (left + contentSize.width > screenWidth)
+    left = screenWidth - contentSize.width - 8;
 
   // Optional: additional animations based on side (like slide-in)
   const transform = [{ scale: scaleAnim }];
-
   const onLayout = (event: any) => {
     const { width, height } = event.nativeEvent.layout;
     setContentSize({ width, height });
@@ -183,9 +193,14 @@ export const HoverCardContent: React.FC<HoverCardContentProps> = ({
   const handleClose = () => setOpen(false);
 
   return (
-    <Modal transparent visible={open} animationType="none" onRequestClose={handleClose}>
+    <Modal
+      transparent
+      visible={open}
+      animationType="none"
+      onRequestClose={handleClose}
+    >
       <TouchableWithoutFeedback onPress={handleClose}>
-        <View style={StyleSheet.absoluteFillObject} />
+        <View style={StyleSheet.absoluteFill} />
       </TouchableWithoutFeedback>
       <Animated.View
         style={[
@@ -211,16 +226,15 @@ export const HoverCardContent: React.FC<HoverCardContentProps> = ({
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   content: {
-    position: 'absolute',
-    backgroundColor: '#fff',
+    position: "absolute",
+    backgroundColor: "#fff",
     borderRadius: 8,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
+    borderColor: "#e5e7eb",
+    boxShadow: "0px 2px 8px rgba(0,0,0,0.1)",
     elevation: 5,
     minWidth: 200,
     maxWidth: 280,
   },
-
 });

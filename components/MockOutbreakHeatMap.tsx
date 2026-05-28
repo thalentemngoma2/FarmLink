@@ -1,13 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
-  Dimensions,
-  Modal,
-  Platform,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Dimensions,
+    Modal,
+    Platform,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 let MapView: any = null;
@@ -16,11 +16,15 @@ let Marker: any = null;
 let PROVIDER_GOOGLE: any = null;
 
 if (Platform.OS !== "web") {
-  const RNMaps = require("react-native-maps");
-  MapView = RNMaps.default;
-  Heatmap = RNMaps.Heatmap;
-  Marker = RNMaps.Marker;
-  PROVIDER_GOOGLE = RNMaps.PROVIDER_GOOGLE;
+  try {
+    const RNMaps = require("react-native-maps");
+    MapView = RNMaps.default;
+    Heatmap = RNMaps.Heatmap;
+    Marker = RNMaps.Marker;
+    PROVIDER_GOOGLE = RNMaps.PROVIDER_GOOGLE;
+  } catch {
+    // Ignore if not installed
+  }
 }
 
 // ---------- Mock Data ----------

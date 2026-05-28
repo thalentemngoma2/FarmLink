@@ -4,28 +4,23 @@
     "slug": "farmlink",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon-square.png",
     "scheme": "farmlink",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "usesCleartextTraffic": true,
-        "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/icon.png",
-        "backgroundImage": "./assets/images/icon.png",
-        "monochromeImage": "./assets/images/icon.png"
+        "backgroundColor": "#E6F4FE"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "package": "com.gozilethu.farmlink"
     },
@@ -38,7 +33,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/icon.png", 
+          "image": "./assets/images/icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -51,13 +46,17 @@
       "expo-video",
       "expo-audio",
       "expo-web-browser",
-      "expo-secure-store",
-      "expo-image",
-      "expo-status-bar"
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "26f94117-eb29-4da5-8b78-b7f13ca82488"
+      }
     }
   }
 }

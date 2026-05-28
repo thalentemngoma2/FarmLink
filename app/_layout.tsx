@@ -1,9 +1,13 @@
+// app/_layout.tsx
+import { CallScreen } from "@/components/CallScreen";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { CallProvider } from "@/context/CallContext";
+import { ChatProvider } from "@/context/ChatContext";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import {
-    configureReanimatedLogger,
-    ReanimatedLogLevel,
+  configureReanimatedLogger,
+  ReanimatedLogLevel,
 } from "react-native-reanimated";
 
 configureReanimatedLogger({
@@ -25,12 +29,10 @@ function RootLayoutNav() {
       segments[0] === "verify-otp" ||
       segments[0] === "forgot-password";
 
-    if (!user && !inAuthGroup) {
-      router.replace("/login");
-    } else if (user && inAuthGroup) {
+    if (user && inAuthGroup) {
       router.replace("/");
     }
-  }, [user, isLoading, segments]);
+  }, [isLoading, isUnlocking, router, segments, user]);
 
   return (
     <Stack>
@@ -48,7 +50,12 @@ function RootLayoutNav() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootLayoutNav />
+      <ChatProvider>
+        <CallProvider>
+          <RootLayoutNav />
+          <CallScreen />
+        </CallProvider>
+      </ChatProvider>
     </AuthProvider>
   );
 }

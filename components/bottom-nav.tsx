@@ -1,23 +1,22 @@
-import { useAuth } from '@/context/AuthContext';
-import { Ionicons } from '@expo/vector-icons';
-import { Link, usePathname } from 'expo-router';
-import React, { useEffect } from 'react';
+import { useAuth } from "@/context/AuthContext";
+import { Ionicons } from "@expo/vector-icons";
+import { Link, usePathname } from "expo-router";
+import React, { useEffect } from "react";
 import {
   Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
-} from 'react-native';
+  View,
+} from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withSpring,
-  withTiming
-} from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@/context/AuthContext';
+  withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export interface NavItemType {
   icon: string;
@@ -28,8 +27,8 @@ export interface NavItemType {
 // Helper to check if a path matches (for nested routes, you might adjust)
 const isActiveRoute = (currentPath: string, itemPath: string) => {
   if (currentPath === itemPath) return true;
-  if (itemPath !== '/' && currentPath.startsWith(itemPath)) return true;
-  if (itemPath === '/tenders' && currentPath.startsWith('/tender')) return true;
+  if (itemPath !== "/" && currentPath.startsWith(itemPath)) return true;
+  if (itemPath === "/tenders" && currentPath.startsWith("/tender")) return true;
   return false;
 };
 
@@ -57,18 +56,24 @@ const NavItem: React.FC<NavItemProps> = ({
 }) => {
   const isActive = isActiveRoute(pathname, item.href);
 
-  const itemAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: itemOpacity.value,
-    transform: [{ translateY: itemTranslateY.value }, { scale: itemScale.value }],
-  }), [itemOpacity, itemTranslateY, itemScale]);
+  const itemAnimatedStyle = useAnimatedStyle(
+    () => ({
+      opacity: itemOpacity.value,
+      transform: [
+        { translateY: itemTranslateY.value },
+        { scale: itemScale.value },
+      ],
+    }),
+    [itemOpacity, itemTranslateY, itemScale],
+  );
 
-  const indicatorAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: indicatorOpacity.value,
-    transform: [
-      { rotate: '45deg' },
-      { scale: indicatorScale.value * 1.2 }
-    ],
-  }), [indicatorOpacity, indicatorScale]);
+  const indicatorAnimatedStyle = useAnimatedStyle(
+    () => ({
+      opacity: indicatorOpacity.value,
+      transform: [{ rotate: "45deg" }, { scale: indicatorScale.value * 1.2 }],
+    }),
+    [indicatorOpacity, indicatorScale],
+  );
 
   const handlePressIn = () => {
     itemScale.value = withSpring(0.95);
@@ -79,7 +84,7 @@ const NavItem: React.FC<NavItemProps> = ({
   };
 
   const handlePress = () => {
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+    if (Platform.OS === "web" && typeof document !== "undefined") {
       (document.activeElement as HTMLElement)?.blur?.();
     }
   };
@@ -100,7 +105,7 @@ const NavItem: React.FC<NavItemProps> = ({
           <Ionicons
             name={item.icon as any}
             size={20}
-            color={isActive ? '#22c55e' : '#9ca3af'}
+            color={isActive ? "#22c55e" : "#9ca3af"}
           />
           <Text
             style={[
@@ -113,10 +118,7 @@ const NavItem: React.FC<NavItemProps> = ({
           </Text>
           {isActive ? (
             <Animated.View
-              style={[
-                styles.activeIndicator,
-                indicatorAnimatedStyle,
-              ]}
+              style={[styles.activeIndicator, indicatorAnimatedStyle]}
             />
           ) : null}
         </Animated.View>
@@ -131,28 +133,20 @@ export const BottomNav: React.FC = () => {
   const { user } = useAuth();
 
   const navItems = React.useMemo(() => {
-    if (user?.role === 'retailer') {
+    if (user?.role === "retailer") {
       return [
-<<<<<<< HEAD
-        { icon: 'home-outline', label: 'Home', href: '/' },
-=======
-        { icon: 'home-outline', label: 'Home', href: '/index' },
->>>>>>> gozilethu/farmlink-Mbutho
-        { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
-        { icon: 'people-outline', label: 'Suppliers', href: '/suppliers' },
-        { icon: 'person-outline', label: 'Profile', href: '/profile' },
+        { icon: "home-outline", label: "Home", href: "/" },
+        { icon: "cart-outline", label: "Tenders", href: "/tenders" },
+        { icon: "people-outline", label: "Suppliers", href: "/suppliers" },
+        { icon: "person-outline", label: "Profile", href: "/profile" },
       ];
     }
 
     return [
-<<<<<<< HEAD
-      { icon: 'home-outline', label: 'Home', href: '/' },
-=======
-      { icon: 'home-outline', label: 'Home', href: '/index' },
->>>>>>> gozilethu/farmlink-Mbutho
-      { icon: 'cart-outline', label: 'Tenders', href: '/tenders' },
-      { icon: 'help-buoy-outline', label: 'Support', href: '/support' },
-      { icon: 'person-outline', label: 'Profile', href: '/profile' },
+      { icon: "home-outline", label: "Home", href: "/" },
+      { icon: "cart-outline", label: "Tenders", href: "/tenders" },
+      { icon: "help-buoy-outline", label: "Support", href: "/support" },
+      { icon: "person-outline", label: "Profile", href: "/profile" },
     ];
   }, [user?.role]);
 
@@ -188,35 +182,61 @@ export const BottomNav: React.FC = () => {
   const indicatorScale3 = useSharedValue(0);
   const indicatorOpacity3 = useSharedValue(0);
 
-  const itemOpacities = [itemOpacity0, itemOpacity1, itemOpacity2, itemOpacity3];
-  const itemTranslatesY = [itemTranslateY0, itemTranslateY1, itemTranslateY2, itemTranslateY3];
+  const itemOpacities = [
+    itemOpacity0,
+    itemOpacity1,
+    itemOpacity2,
+    itemOpacity3,
+  ];
+  const itemTranslatesY = [
+    itemTranslateY0,
+    itemTranslateY1,
+    itemTranslateY2,
+    itemTranslateY3,
+  ];
   const itemScales = [itemScale0, itemScale1, itemScale2, itemScale3];
-  const indicatorScales = [indicatorScale0, indicatorScale1, indicatorScale2, indicatorScale3];
-  const indicatorOpacities = [indicatorOpacity0, indicatorOpacity1, indicatorOpacity2, indicatorOpacity3];
+  const indicatorScales = [
+    indicatorScale0,
+    indicatorScale1,
+    indicatorScale2,
+    indicatorScale3,
+  ];
+  const indicatorOpacities = [
+    indicatorOpacity0,
+    indicatorOpacity1,
+    indicatorOpacity2,
+    indicatorOpacity3,
+  ];
 
-useEffect(() => {
-     navTranslateY.value = withTiming(0, { duration: 300 });
-     navOpacity.value = withTiming(1, { duration: 300 });
+  useEffect(() => {
+    navTranslateY.value = withTiming(0, { duration: 300 });
+    navOpacity.value = withTiming(1, { duration: 300 });
 
-     navItems.forEach((_, idx) => {
-       const delay = 300 + idx * 50;
-       itemOpacities[idx].value = withDelay(delay, withTiming(1, { duration: 300 }));
-       itemTranslatesY[idx].value = withDelay(delay, withTiming(0, { duration: 300 }));
-     });
-   }, [navItems, itemOpacities, itemTranslatesY, navTranslateY, navOpacity]);
+    navItems.forEach((_, idx) => {
+      const delay = 300 + idx * 50;
+      itemOpacities[idx].value = withDelay(
+        delay,
+        withTiming(1, { duration: 300 }),
+      );
+      itemTranslatesY[idx].value = withDelay(
+        delay,
+        withTiming(0, { duration: 300 }),
+      );
+    });
+  }, [navItems, itemOpacities, itemTranslatesY, navTranslateY, navOpacity]);
 
-useEffect(() => {
-     navItems.forEach((item, idx) => {
-       const isActive = isActiveRoute(pathname, item.href);
-       if (isActive) {
-         indicatorScales[idx].value = withSpring(1);
-         indicatorOpacities[idx].value = withTiming(1, { duration: 200 });
-       } else {
-         indicatorScales[idx].value = withSpring(0);
-         indicatorOpacities[idx].value = withTiming(0, { duration: 200 });
-       }
-     });
-   }, [navItems, indicatorOpacities, indicatorScales, pathname]);
+  useEffect(() => {
+    navItems.forEach((item, idx) => {
+      const isActive = isActiveRoute(pathname, item.href);
+      if (isActive) {
+        indicatorScales[idx].value = withSpring(1);
+        indicatorOpacities[idx].value = withTiming(1, { duration: 200 });
+      } else {
+        indicatorScales[idx].value = withSpring(0);
+        indicatorOpacities[idx].value = withTiming(0, { duration: 200 });
+      }
+    });
+  }, [navItems, indicatorOpacities, indicatorScales, pathname]);
 
   const navAnimatedStyle = useAnimatedStyle(() => ({
     opacity: navOpacity.value,
@@ -251,23 +271,22 @@ useEffect(() => {
 };
 
 const styles = StyleSheet.create({
-<<<<<<< HEAD
   container: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     zIndex: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   navBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: "rgba(255, 255, 255, 0.3)",
     borderRadius: 28,
     paddingVertical: 8,
     paddingHorizontal: 12,
@@ -276,47 +295,24 @@ const styles = StyleSheet.create({
   },
   tabButton: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 24,
     paddingVertical: 8,
     paddingHorizontal: 12,
   },
   activeTab: {},
-  tabInner: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabInnerText: {
-    marginTop: 2,
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: '#9ca3af',
-  },
-  activeLabel: {
-    color: '#22c55e',
-  },
+  tabInner: { alignItems: "center", justifyContent: "center" },
+  tabInnerText: { marginTop: 2 },
+  label: { fontSize: 10, fontWeight: "500", color: "#9ca3af" },
+  activeLabel: { color: "#22c55e" },
   activeIndicator: {
-    position: 'absolute',
+    position: "absolute",
     bottom: -6,
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#22c55e',
-    alignSelf: 'center',
+    backgroundColor: "#22c55e",
+    alignSelf: "center",
   },
 });
-=======
-  container: { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 50, alignItems: 'center', justifyContent: 'center', },
-  navBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: 'rgba(255, 255, 255, 0.7)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.3)', borderRadius: 28, paddingVertical: 8, paddingHorizontal: 12, marginHorizontal: 16, elevation: 8, },
-  tabButton: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 24, paddingVertical: 8, paddingHorizontal: 12, },
-  activeTab: {},
-  tabInner: { alignItems: 'center', justifyContent: 'center', },
-  tabInnerText: { marginTop: 2, },
-  label: { fontSize: 10, fontWeight: '500', color: '#9ca3af', },
-  activeLabel: { color: '#22c55e', },
-  activeIndicator: { position: 'absolute', bottom: -6, width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e', alignSelf: 'center', },
-});
->>>>>>> gozilethu/farmlink-Mbutho

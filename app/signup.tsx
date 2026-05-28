@@ -1,5 +1,6 @@
 import { GlassCard } from "@/components/ui/glass-card";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -42,7 +43,7 @@ const userTypes = [
 
 export default function SignupPage() {
   const router = useRouter();
-  const { signup } = useAuth();
+  const { signup, login } = useAuth();
 
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -96,19 +97,38 @@ export default function SignupPage() {
 
     setIsLoading(true);
     try {
-      // AuthContext.signup accepts: (email, password, name, role?, location?)
+      // 1. Sign up the user. This creates an entry in auth.users with metadata.
       await signup(
         formData.email.trim(),
         formData.password,
         formData.fullName.trim(),
         formData.userType,
-        formData.location.trim(),
+        formData.location.trim()
       );
 
-      // After signup, verify OTP
-      router.push(
-        `/verify-otp?email=${encodeURIComponent(formData.email.trim())}&userType=${encodeURIComponent(formData.userType)}`,
-      );
+      // 2. Log the user in. This assumes "Confirm email" is OFF in Supabase Auth settings.
+      await login(formData.email.trim(), formData.password);
+
+      // 3. Get user and ensure their profile in `public.users` is correct.
+      // This step is moved from the (now-bypassed) verify-otp screen.
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        const { error: upsertError } = await supabase.from("users").upsert({
+          user_id: user.id,
+          role: user.user_metadata.role || formData.userType,
+          username:
+            user.user_metadata.username || user.email?.split("@")[0] || "",
+        });
+        if (upsertError) {
+          // Log error but don't block login
+          console.error("Failed to save user role:", upsertError);
+        }
+      }
+
+      // 4. Redirect to home. The AuthProvider will handle the user state.
+      router.replace("/");
     } catch (err: any) {
       setError(err.message || "Signup failed. Please try again.");
     } finally {

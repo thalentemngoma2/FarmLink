@@ -3,8 +3,8 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
-  }
-  ,
+  },
+  "json.schemaDownload.enable": false,
   "deno.enable": true,
   "deno.unstable": true,
   "deno.importMap": "./supabase/functions/import_map.json"

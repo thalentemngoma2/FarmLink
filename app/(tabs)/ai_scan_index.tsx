@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as FileSystem from "expo-file-system/legacy";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -14,10 +15,12 @@ import {
   Modal,
   Platform,
   ScrollView,
+  StyleProp,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  ViewStyle,
 } from "react-native";
 import Animated, {
   Easing,
@@ -33,8 +36,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// -------------------- Types --------------------
 type PlantState = "undergrowth" | "overgrowth" | "disease" | "healthy";
+type PaymentDuration = "once" | "day" | "15days" | "month";
 
 interface PlantAnalysis {
   state: PlantState;
@@ -63,20 +66,114 @@ interface CommunityScan {
   timestamp: string;
 }
 
-// -------------------- Utility functions --------------------
+interface PaymentPlan {
+  id: string;
+  name: string;
+  price: number;
+  description: string;
+  duration: PaymentDuration;
+}
+
+const rawKindwiseApiKey = process.env.EXPO_PUBLIC_KINDWISE_API_KEY;
+
+if (!rawKindwiseApiKey) {
+  throw new Error("Missing EXPO_PUBLIC_KINDWISE_API_KEY environment variable");
+}
+
+const KINDWISE_API_KEY = rawKindwiseApiKey;
+
+const BASE_URL =
+  process.env.EXPO_PUBLIC_KINDWISE_API_URL ||
+  "https://crop.kindwise.com/api/v1/identification";
+
+const KINDWISE_API_URL = (() => {
+  try {
+    const url = new URL(BASE_URL);
+    url.searchParams.set("details", "health_assessment");
+    return url.toString();
+  } catch {
+    const separator = BASE_URL.includes("?") ? "&" : "?";
+    return `${BASE_URL}${separator}details=health_assessment`;
+  }
+})();
+
+const PAYMENT_PLANS: PaymentPlan[] = [
+  {
+    id: "1",
+    name: "Single Scan",
+    price: 10,
+    description: "One extra scan",
+    duration: "once",
+  },
+  {
+    id: "2",
+    name: "Day Pass",
+    price: 100,
+    description: "10 scans for today",
+    duration: "day",
+  },
+  {
+    id: "3",
+    name: "15 Day Pass",
+    price: 250,
+    description: "Unlimited scans for 15 days",
+    duration: "15days",
+  },
+  {
+    id: "4",
+    name: "1 Month Pass",
+    price: 1500,
+    description: "Unlimited scans for one month",
+    duration: "month",
+  },
+];
+
+const GATEWAYS = [
+  { id: "ozow", name: "Ozow", icon: "wallet-outline" },
+  { id: "ikhokha", name: "iKhokha", icon: "card-outline" },
+  { id: "yoco", name: "Yoco", icon: "cash-outline" },
+];
+
+async function imageUriToBase64(uri: string): Promise<string> {
+  if (Platform.OS === "web") {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    }).then((dataUrl) => {
+      const base64Index = dataUrl.indexOf(";base64,");
+      return base64Index !== -1 ? dataUrl.substring(base64Index + 8) : dataUrl;
+    });
+  }
+
+  return await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+}
+
 const formatRelativeTime = (isoString?: string) => {
   if (!isoString) return "Just now";
+
   const date = new Date(isoString);
-  if (isNaN(date.getTime()) || date.getFullYear() <= 1970) return "Just now";
+  if (Number.isNaN(date.getTime()) || date.getFullYear() <= 1970) {
+    return "Just now";
+  }
+
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
+
   if (diffMins < 1) return "Just now";
   if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24)
+  if (diffHours < 24) {
     return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  }
+
   return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
 };
 
@@ -118,12 +215,25 @@ const getCommunityStatusColor = (status: string) => {
   return "#6b7280";
 };
 
-// -------------------- Glassmorphism Card --------------------
-const GlassCard: React.FC<{
+const isAbortError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { name?: string; message?: string };
+  return (
+    maybeError.name === "AbortError" ||
+    (typeof maybeError.message === "string" &&
+      maybeError.message.toLowerCase().includes("abort"))
+  );
+};
+
+const GlassCard = ({
+  children,
+  style,
+  intensity = 20,
+}: {
   children: React.ReactNode;
-  style?: object;
+  style?: StyleProp<ViewStyle>;
   intensity?: number;
-}> = ({ children, style, intensity = 20 }) => (
+}) => (
   <BlurView
     intensity={intensity}
     tint="light"
@@ -133,59 +243,10 @@ const GlassCard: React.FC<{
   </BlurView>
 );
 
-// Helper to check if an error is an abort (signal cancellation)
-const isAbortError = (error: any): boolean => {
-  return (
-    error?.name === "AbortError" ||
-    (error?.message &&
-      typeof error.message === "string" &&
-      error.message.toLowerCase().includes("abort"))
-  );
-};
-
-// -------------------- Payment Plans --------------------
-const PAYMENT_PLANS = [
-  {
-    id: "1",
-    name: "Single Scan",
-    price: 10,
-    description: "One extra scan",
-    duration: "once",
-  },
-  {
-    id: "2",
-    name: "Day Pass",
-    price: 100,
-    description: "10 scans for today",
-    duration: "day",
-  },
-  {
-    id: "3",
-    name: "15 Day Pass",
-    price: 250,
-    description: "Unlimited scans for 15 days",
-    duration: "15days",
-  },
-  {
-    id: "4",
-    name: "1 Month Pass",
-    price: 1500,
-    description: "Unlimited scans for one month",
-    duration: "month",
-  },
-];
-
-const GATEWAYS = [
-  { id: "ozow", name: "Ozow", icon: "wallet-outline" },
-  { id: "ikhokha", name: "iKhokha", icon: "card-outline" },
-  { id: "yoco", name: "Yoco", icon: "cash-outline" },
-];
-
 export default function FarmLinkPage() {
   const { user } = useAuth();
   const router = useRouter();
 
-  // ---------- Scanning state machine ----------
   const [scanVisible, setScanVisible] = useState(false);
   const [scanStage, setScanStage] = useState<
     | "idle"
@@ -204,54 +265,22 @@ export default function FarmLinkPage() {
   );
   const [feedbackGiven, setFeedbackGiven] = useState(false);
 
-  // History & community scans
   const [scanHistory, setScanHistory] = useState<UserScan[]>([]);
   const [communityScans, setCommunityScans] = useState<CommunityScan[]>([]);
   const [loadingCommunity, setLoadingCommunity] = useState(false);
   const [loadingScans, setLoadingScans] = useState(false);
 
-  // Camera
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const isMountedRef = useRef(true);
 
-  // Daily scan limit
   const [todayScanCount, setTodayScanCount] = useState(0);
+  const [, setFreeLimitReached] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [selectedGateway, setSelectedGateway] = useState<string | null>(null);
   const [paymentProcessing, setPaymentProcessing] = useState(false);
-  const [unlimitedUntil, setUnlimitedUntil] = useState<Date | null>(null); // simulated premium
-
-  const handleAnalysis = useCallback(
-    async (imageUri: string) => {
-      setScanStage("analyzing");
-      try {
-        const analysis = await analyzeAndSaveWithBackend(imageUri);
-        if (!isMountedRef.current) return;
-        setAnalysisResult(analysis);
-        if (user) {
-          await fetchUserScans(user.id);
-          await fetchTodayScanCount();
-        }
-        setScanStage("result");
-      } catch (error: any) {
-        if (!isMountedRef.current) return;
-        if (error.message?.includes("No plant detected")) {
-          Alert.alert(
-            "No plant found",
-            "Please point the camera at a clear plant leaf and hold steady.",
-          );
-          setScanStage("searching");
-        } else {
-          console.error("Scan failed", error);
-          setScanError(error.message || "Failed to analyze the plant.");
-          setScanStage("error");
-        }
-      }
-    },
-    [user, fetchTodayScanCount],
-  ); // Notice analyzeAndSaveWithBackend doesn't rely on state, so it's safe without inclusion
+  const [unlimitedUntil, setUnlimitedUntil] = useState<Date | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -260,89 +289,80 @@ export default function FarmLinkPage() {
     };
   }, []);
 
-  // ---------- Fetch today's scan count ----------
   const fetchTodayScanCount = useCallback(async () => {
     if (!user) return;
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     const { count, error } = await supabase
       .from("plant_scans")
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
       .gte("created_at", today.toISOString());
+
     if (!error && count !== null) {
       setTodayScanCount(count);
-    }
-  }, [user, unlimitedUntil]);
-
-  // ---------- Fetch scans on mount ----------
-  useEffect(() => {
-    const abortController = new AbortController();
-    const load = async () => {
-      try {
-        setLoadingScans(true);
-        if (user) {
-          await fetchUserScans(user.id, abortController.signal);
-          await fetchTodayScanCount();
-        }
-        await fetchCommunityScans(abortController.signal);
-      } catch (error: any) {
-        if (!isAbortError(error)) {
-          console.error("Scan loading error:", error);
-        }
-      } finally {
-        if (isMountedRef.current) setLoadingScans(false);
-      }
-    };
-    load();
-    return () => abortController.abort();
-  }, [user, fetchTodayScanCount]);
-
-  const fetchUserScans = async (userId: string, signal?: AbortSignal) => {
-    try {
-      let query = supabase
-        .from("plant_scans")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-      if (signal) query = query.abortSignal(signal);
-      const { data, error } = await query;
-      if (error) throw error;
-      if (!isMountedRef.current) return;
-      setScanHistory(
-        (data || []).map((scan: any) => ({
-          id: String(scan.id),
-          plantName: String(scan.plant_name || ""),
-          imageUri: String(scan.image_url || ""),
-          analysis: {
-            state: scan.analysis_state as PlantState,
-            cause: String(scan.analysis_cause || ""),
-            solution: String(scan.analysis_solution || ""),
-            preventiveTips: String(scan.analysis_preventive || ""),
-            plantName: String(scan.plant_name || ""),
-          },
-          timestamp: String(scan.created_at || ""),
-          synced: true,
-        })),
+      setFreeLimitReached(
+        count >= 3 && (!unlimitedUntil || unlimitedUntil < new Date()),
       );
-    } catch (error: any) {
-      if (isAbortError(error)) return;
-      throw error;
     }
-  };
+  }, [unlimitedUntil, user]);
 
-  const fetchCommunityScans = async (signal?: AbortSignal) => {
+  const fetchUserScans = useCallback(
+    async (userId: string, signal?: AbortSignal) => {
+      try {
+        let query = supabase
+          .from("plant_scans")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+
+        if (signal) query = query.abortSignal(signal);
+
+        const { data, error } = await query;
+        if (error) throw error;
+        if (!isMountedRef.current) return;
+
+        setScanHistory(
+          (data || []).map((scan: any) => ({
+            id: String(scan.id),
+            plantName: String(scan.plant_name || ""),
+            imageUri: String(scan.image_url || ""),
+            analysis: {
+              state: scan.analysis_state as PlantState,
+              cause: String(scan.analysis_cause || ""),
+              solution: String(scan.analysis_solution || ""),
+              preventiveTips: String(scan.analysis_preventive || ""),
+              plantName: String(scan.plant_name || ""),
+            },
+            timestamp: String(scan.created_at || ""),
+            synced: true,
+          })),
+        );
+      } catch (error) {
+        if (isAbortError(error)) return;
+        throw error;
+      }
+    },
+    [],
+  );
+
+  const fetchCommunityScans = useCallback(async (signal?: AbortSignal) => {
     setLoadingCommunity(true);
+
     try {
-      let query = supabase
+      let scansQuery = supabase
         .from("plant_scans")
         .select(
           "id, user_id, plant_name, image_url, analysis_state, created_at",
         )
         .order("created_at", { ascending: false })
         .limit(10);
-      if (signal) query = query.abortSignal(signal);
-      const { data: scans, error } = await query;
+
+      if (signal) scansQuery = scansQuery.abortSignal(signal);
+
+      const { data: scans, error } = await scansQuery;
       if (error) throw error;
       if (!isMountedRef.current) return;
       if (!scans || scans.length === 0) {
@@ -351,30 +371,36 @@ export default function FarmLinkPage() {
       }
 
       const userIds = [...new Set(scans.map((s) => s.user_id).filter(Boolean))];
-      let userMap: Record<string, string> = {};
+      const userMap: Record<string, string> = {};
+
       userIds.forEach((id) => {
         userMap[id] = `Farmer_${id.slice(-4)}`;
       });
+
       if (userIds.length > 0) {
         try {
-          let userQuery = supabase
+          let usersQuery = supabase
             .from("users")
             .select("user_id, username")
             .in("user_id", userIds);
-          if (signal) userQuery = userQuery.abortSignal(signal);
-          const { data: users, error: usersError } = await userQuery;
+
+          if (signal) usersQuery = usersQuery.abortSignal(signal);
+
+          const { data: users, error: usersError } = await usersQuery;
           if (!usersError && users) {
-            users.forEach((u: any) => {
-              userMap[String(u.user_id)] = String(
-                u.username || userMap[u.user_id],
+            users.forEach((profile: any) => {
+              userMap[String(profile.user_id)] = String(
+                profile.username || userMap[profile.user_id],
               );
             });
           }
-        } catch (err) {
-          if (!isAbortError(err))
-            console.warn("Could not fetch usernames – using fallback");
+        } catch (error) {
+          if (!isAbortError(error)) {
+            console.warn("Could not fetch usernames - using fallback");
+          }
         }
       }
+
       setCommunityScans(
         scans.map((scan: any) => ({
           id: String(scan.id),
@@ -395,75 +421,223 @@ export default function FarmLinkPage() {
           timestamp: formatRelativeTime(scan.created_at),
         })),
       );
-    } catch (error: any) {
+    } catch (error) {
       if (!isAbortError(error)) {
         console.error("Failed to load community scans:", error);
       }
     } finally {
       if (isMountedRef.current) setLoadingCommunity(false);
     }
-  };
+  }, []);
 
-  // ---------- AI & Backend Integration ----------
-  const analyzeAndSaveWithBackend = async (
-    imageUri: string,
-  ): Promise<PlantAnalysis> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Not authenticated");
+  useEffect(() => {
+    const abortController = new AbortController();
 
-    const formData = new FormData();
-    const extCandidate = imageUri.split(".").pop();
-    const ext =
-      extCandidate && extCandidate.length <= 4 && !extCandidate.includes("/")
-        ? extCandidate
-        : "jpg";
+    const load = async () => {
+      try {
+        setLoadingScans(true);
+        if (user) {
+          await fetchUserScans(user.id, abortController.signal);
+          await fetchTodayScanCount();
+        }
+        await fetchCommunityScans(abortController.signal);
+      } catch (error) {
+        if (!isAbortError(error)) {
+          console.error("Scan loading error:", error);
+        }
+      } finally {
+        if (isMountedRef.current) setLoadingScans(false);
+      }
+    };
 
-    formData.append("image", {
-      uri: imageUri,
-      name: `scan.${ext}`,
-      type: "image/jpeg",
-    } as any);
+    load();
+    return () => abortController.abort();
+  }, [fetchCommunityScans, fetchTodayScanCount, fetchUserScans, user]);
 
-    formData.append("plantName", "Auto-detected Plant");
+  const analyzeWithKindwise = useCallback(
+    async (imageUri: string): Promise<PlantAnalysis> => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
 
-    // If testing on a PHYSICAL device (Android), change this to your computer's local IP address (e.g., 'http://192.168.1.100:3000')
-    const BACKEND_URL =
-      Platform.OS === "android"
-        ? "http://10.0.2.2:3000"
-        : "http://localhost:3000";
+      try {
+        const base64 = await imageUriToBase64(imageUri);
+        const response = await fetch(KINDWISE_API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Api-Key": KINDWISE_API_KEY,
+          },
+          body: JSON.stringify({ images: [base64] }),
+          signal: controller.signal,
+        });
 
-    const response = await fetch(`${BACKEND_URL}/scan-server/src/index`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: formData,
-    });
+        clearTimeout(timeout);
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Server error ${response.status}: ${errText}`);
-    }
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Kindwise API error ${response.status}: ${errText}`);
+        }
 
-    const data = await response.json();
-    return data.analysis;
-  };
+        const data = await response.json();
+        const result = data?.result;
+        const isPlant = result?.is_plant?.binary ?? true;
 
-  // ---------- Daily scan limit check ----------
+        if (!isPlant) {
+          throw new Error(
+            "No plant detected. Please try a clearer image of a leaf.",
+          );
+        }
+
+        const cropSuggestions = result?.crop?.suggestions;
+        const bestCrop =
+          Array.isArray(cropSuggestions) && cropSuggestions.length > 0
+            ? cropSuggestions[0]
+            : null;
+        const plantName =
+          bestCrop?.name ?? bestCrop?.scientific_name ?? "Unknown crop";
+
+        const diseaseSuggestions: any[] = result?.disease?.suggestions ?? [];
+        const actualDiseases = diseaseSuggestions.filter(
+          (suggestion) => suggestion.name?.toLowerCase() !== "healthy",
+        );
+        const topDisease = actualDiseases.length > 0 ? actualDiseases[0] : null;
+        const isDiseased = topDisease && topDisease.probability > 0.3;
+
+        let state: PlantState = "healthy";
+        let cause = "No diseases detected.";
+        let solution = "Continue your regular watering and feeding schedule.";
+        let preventiveTips =
+          "Keep an eye on plant health and practice crop rotation.";
+
+        if (isDiseased) {
+          state = "disease";
+          const diseaseName = topDisease.name || "Unknown disease";
+          const scientificName =
+            topDisease.scientific_name &&
+            topDisease.scientific_name !== diseaseName
+              ? ` (*${topDisease.scientific_name}*)`
+              : "";
+
+          let detailedCause = `**${diseaseName}**${scientificName}\n\n`;
+
+          if (topDisease.description) {
+            detailedCause += topDisease.description + "\n\n";
+          } else {
+            detailedCause +=
+              "This disease affects the plant's health and can reduce crop yield if left untreated.\n\n";
+          }
+
+          if (topDisease.treatment) {
+            if (topDisease.treatment.chemical?.length) {
+              detailedCause += `💊 **Chemical treatment:** ${topDisease.treatment.chemical.join(", ")}\n`;
+            }
+            if (topDisease.treatment.biological?.length) {
+              detailedCause += `🧬 **Biological treatment:** ${topDisease.treatment.biological.join(", ")}\n`;
+            }
+            if (topDisease.treatment.mechanical?.length) {
+              detailedCause += `🔧 **Mechanical treatment:** ${topDisease.treatment.mechanical.join(", ")}\n`;
+            }
+            if (topDisease.treatment.cultural?.length) {
+              detailedCause += `🌾 **Cultural practices:** ${topDisease.treatment.cultural.join(", ")}\n`;
+            }
+            detailedCause += "\n";
+          }
+
+          solution = "Take the following steps to manage this disease:";
+
+          if (topDisease.treatment?.chemical?.length) {
+            solution += `\n- Apply chemical treatments like ${topDisease.treatment.chemical[0]}.`;
+          } else if (topDisease.treatment?.biological?.length) {
+            solution += `\n- Use biological control: ${topDisease.treatment.biological[0]}.`;
+          } else {
+            solution +=
+              "\n- Consult an agronomist for specific chemical or biological treatment options.";
+          }
+
+          preventiveTips = topDisease.prevention?.length
+            ? topDisease.prevention.map((tip: string) => `• ${tip}`).join("\n")
+            : "• Use resistant varieties\n• Ensure proper plant spacing\n• Monitor regularly and remove infected plants";
+          cause = detailedCause.trim();
+        }
+
+        return { state, cause, solution, preventiveTips, plantName };
+      } catch (error: any) {
+        clearTimeout(timeout);
+        if (error.name === "AbortError") {
+          throw new Error(
+            "The request timed out. Please check your connection and try again.",
+          );
+        }
+        throw error;
+      }
+    },
+    [],
+  );
+
+  const uploadAndSaveScan = useCallback(
+    async (imageUri: string, plant: string, analysis: PlantAnalysis) => {
+      if (!user) throw new Error("Not authenticated");
+
+      try {
+        const response = await fetch(imageUri);
+        if (!response.ok) throw new Error("Failed to read image file");
+
+        const blob = await response.blob();
+        const extCandidate = imageUri.split(".").pop();
+        const ext =
+          extCandidate &&
+          extCandidate.length <= 4 &&
+          !extCandidate.includes("/")
+            ? extCandidate
+            : "jpg";
+        const path = `scans/${user.id}/${Date.now()}.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("farmlink")
+          .upload(path, blob, { contentType: "image/jpeg" });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from("farmlink")
+          .getPublicUrl(path);
+
+        const { error: insertError } = await supabase
+          .from("plant_scans")
+          .insert({
+            user_id: user.id,
+            plant_name: plant,
+            image_url: urlData.publicUrl,
+            analysis_state: analysis.state,
+            analysis_cause: analysis.cause,
+            analysis_solution: analysis.solution,
+            analysis_preventive: analysis.preventiveTips,
+            created_at: new Date(),
+          });
+
+        if (insertError) throw insertError;
+      } catch {
+        Alert.alert(
+          "Storage unavailable",
+          "The scan could not be saved to your history, but your diagnosis is ready below.\n\n" +
+            'Please ensure the "farmlink" bucket exists and the RLS policy for authenticated uploads is in place.',
+        );
+      }
+    },
+    [user],
+  );
+
   const canScanNow = useCallback(() => {
-    // If user has a valid unlimited pass, allow
     if (unlimitedUntil && unlimitedUntil > new Date()) return true;
-    // Free limit check
+
     if (todayScanCount >= 3) {
       setShowPaywall(true);
       return false;
     }
-    return true;
-  }, [unlimitedUntil, todayScanCount]);
 
-  // ---------- Payment simulation ----------
+    return true;
+  }, [todayScanCount, unlimitedUntil]);
+
   const handlePayment = async () => {
     if (!selectedPlan || !selectedGateway) {
       Alert.alert(
@@ -472,13 +646,16 @@ export default function FarmLinkPage() {
       );
       return;
     }
+
     setPaymentProcessing(true);
-    // Simulate network delay
     await new Promise((resolve) => setTimeout(resolve, 2000));
+
     try {
-      const plan = PAYMENT_PLANS.find((p) => p.id === selectedPlan);
+      const plan = PAYMENT_PLANS.find((item) => item.id === selectedPlan);
       if (!plan) throw new Error("Invalid plan");
+
       let newUnlimitedUntil: Date | null = null;
+
       if (plan.duration === "day") {
         newUnlimitedUntil = new Date();
         newUnlimitedUntil.setHours(23, 59, 59, 999);
@@ -489,15 +666,14 @@ export default function FarmLinkPage() {
         newUnlimitedUntil = new Date();
         newUnlimitedUntil.setMonth(newUnlimitedUntil.getMonth() + 1);
       }
-      // For single scan, we'll just simulate by resetting the daily count for now
+
       if (plan.duration === "once") {
-        // Allow one more scan by decrementing today's count? Better: just set freeLimitReached false temporarily
         setFreeLimitReached(false);
-        setTodayScanCount(2); // trick to allow one more
+        setTodayScanCount(2);
       } else {
         setUnlimitedUntil(newUnlimitedUntil);
       }
-      // Save payment record in DB (optional)
+
       await supabase.from("payments").insert({
         user_id: user?.id,
         plan: plan.name,
@@ -505,12 +681,11 @@ export default function FarmLinkPage() {
         amount: plan.price,
         created_at: new Date(),
       });
+
       Alert.alert("Payment Successful", `You now have ${plan.description}.`);
       setShowPaywall(false);
       setSelectedPlan(null);
       setSelectedGateway(null);
-      // After payment, automatically start scan if the user pressed scan button
-      // But we'll just let the user press Scan Now again.
     } catch (error: any) {
       Alert.alert("Payment failed", error.message || "Something went wrong.");
     } finally {
@@ -518,11 +693,11 @@ export default function FarmLinkPage() {
     }
   };
 
-  // ---------- Auto‑capture sequence ----------
   const startScan = useCallback(async () => {
     setScanError("");
-    // Check limit
+
     if (!canScanNow()) return;
+
     if (!permission?.granted) {
       const result = await requestPermission();
       if (!result.granted) {
@@ -531,48 +706,102 @@ export default function FarmLinkPage() {
         return;
       }
     }
+
     setScanVisible(true);
     setScanStage("searching");
-  }, [permission, requestPermission, canScanNow]);
+  }, [canScanNow, permission, requestPermission]);
+
+  const handleAnalysis = useCallback(
+    async (imageUri: string) => {
+      setScanStage("analyzing");
+
+      try {
+        const analysis = await analyzeWithKindwise(imageUri);
+        if (!isMountedRef.current) return;
+
+        const plantName = analysis.plantName || "Unknown plant";
+        await uploadAndSaveScan(imageUri, plantName, analysis).catch(() => {});
+        if (!isMountedRef.current) return;
+
+        setAnalysisResult(analysis);
+
+        if (user) {
+          await fetchUserScans(user.id);
+          await fetchTodayScanCount();
+        }
+
+        setScanStage("result");
+      } catch (error: any) {
+        if (!isMountedRef.current) return;
+
+        if (error.message?.includes("No plant detected")) {
+          Alert.alert(
+            "No plant found",
+            "Please point the camera at a clear plant leaf and hold steady.",
+          );
+          setScanStage("searching");
+        } else {
+          console.error("Scan failed", error);
+          setScanError(error.message || "Failed to analyze the plant.");
+          setScanStage("error");
+        }
+      }
+    },
+    [
+      analyzeWithKindwise,
+      fetchTodayScanCount,
+      fetchUserScans,
+      uploadAndSaveScan,
+      user,
+    ],
+  );
 
   useEffect(() => {
     if (scanStage === "searching") {
-      const t1 = setTimeout(() => {
+      const timer = setTimeout(() => {
         if (isMountedRef.current) setScanStage("detected");
       }, 1800);
-      return () => clearTimeout(t1);
+      return () => clearTimeout(timer);
     }
+
     if (scanStage === "detected") {
-      const t2 = setTimeout(() => {
+      const timer = setTimeout(() => {
         if (isMountedRef.current) setScanStage("hold");
       }, 1200);
-      return () => clearTimeout(t2);
+      return () => clearTimeout(timer);
     }
+
     if (scanStage === "hold") {
       const timer = setTimeout(async () => {
         if (!isMountedRef.current || !cameraRef.current) return;
+
         setScanStage("capturing");
+
         try {
           const photo = await cameraRef.current.takePictureAsync({
             quality: 0.8,
             base64: false,
           });
+
           if (!isMountedRef.current) return;
           setCapturedPhotoUri(photo.uri);
           handleAnalysis(photo.uri);
-        } catch (e) {
-          console.warn("Capture failed", e);
+        } catch (error) {
+          console.warn("Capture failed", error);
           setScanError("Could not capture photo. Please try again.");
           setScanStage("error");
         }
       }, 2000);
+
       return () => clearTimeout(timer);
     }
-  }, [scanStage, handleAnalysis]);
 
-  // ---------- Feedback & actions ----------
+    return undefined;
+  }, [handleAnalysis, scanStage]);
+
   const handleRateFeedback = async (helpful: boolean) => {
     if (feedbackGiven || !analysisResult) return;
+
     setFeedbackGiven(true);
     Alert.alert(
       "Thank you",
@@ -581,12 +810,12 @@ export default function FarmLinkPage() {
   };
 
   const handleTakeAction = () => {
-    if (analysisResult) {
-      Alert.alert(
-        "Take Action",
-        `${analysisResult.solution}\n\nFor more detailed guidance, check the Agri‑Advisor in the community section.`,
-      );
-    }
+    if (!analysisResult) return;
+
+    Alert.alert(
+      "Take Action",
+      `${analysisResult.solution}\n\nFor more detailed guidance, check the Agri-Advisor in the community section.`,
+    );
   };
 
   const closeScanner = () => {
@@ -598,9 +827,9 @@ export default function FarmLinkPage() {
     setScanError("");
   };
 
-  // ---------- Background animations ----------
   const bgScale = useSharedValue(1);
   const bgOpacity = useSharedValue(0.3);
+
   useEffect(() => {
     bgScale.value = withRepeat(withTiming(1.2, { duration: 8000 }), -1, true);
     bgOpacity.value = withRepeat(
@@ -608,7 +837,8 @@ export default function FarmLinkPage() {
       -1,
       true,
     );
-  }, [bgScale, bgOpacity]);
+  }, [bgOpacity, bgScale]);
+
   const bg1Animated = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }],
     opacity: interpolate(
@@ -618,6 +848,7 @@ export default function FarmLinkPage() {
       Extrapolate.CLAMP,
     ),
   }));
+
   const bg2Animated = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }],
     opacity: interpolate(
@@ -627,9 +858,11 @@ export default function FarmLinkPage() {
       Extrapolate.CLAMP,
     ),
   }));
+
   const { width, height } = Dimensions.get("window");
 
   const scanRing = useSharedValue(1);
+
   useEffect(() => {
     if (
       scanStage === "searching" ||
@@ -637,14 +870,18 @@ export default function FarmLinkPage() {
       scanStage === "hold"
     ) {
       scanRing.value = withRepeat(
-        withTiming(1.2, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1.2, {
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+        }),
         -1,
         true,
       );
     } else {
       scanRing.value = 1;
     }
-  }, [scanStage, scanRing]);
+  }, [scanRing, scanStage]);
+
   const ringStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scanRing.value }],
     opacity: interpolate(
@@ -655,11 +892,9 @@ export default function FarmLinkPage() {
     ),
   }));
 
-  // ---------- Render ----------
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <View style={styles.container}>
-        {/* Back button to home */}
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
@@ -672,6 +907,7 @@ export default function FarmLinkPage() {
           colors={["#f0fdf4", "#ffffff", "#ecfdf5"]}
           style={StyleSheet.absoluteFill}
         />
+
         <Animated.View
           style={[
             styles.bgBlob1,
@@ -690,6 +926,7 @@ export default function FarmLinkPage() {
             style={StyleSheet.absoluteFill}
           />
         </Animated.View>
+
         <Animated.View
           style={[
             styles.bgBlob2,
@@ -728,9 +965,10 @@ export default function FarmLinkPage() {
                 <Ionicons name="leaf" size={32} color="white" />
               </LinearGradient>
             </Animated.View>
+
             <Text style={styles.heroTitle}>AI Plant Monitor</Text>
             <Text style={styles.heroSubtitle}>
-              Identify diseases instantly – no typing needed
+              Identify diseases instantly - no typing needed
             </Text>
             <Text style={styles.scanLimitText}>
               {todayScanCount}/3 free scans today
@@ -751,10 +989,10 @@ export default function FarmLinkPage() {
               <View style={styles.plantMonitorContent}>
                 <View style={styles.plantMonitorText}>
                   <Text style={styles.plantMonitorTitle}>
-                    🌿 One‑Tap Scanner
+                    🌿 One-Tap Scanner
                   </Text>
                   <Text style={styles.plantMonitorDesc}>
-                    Point your camera – we’ll do the rest
+                    {"Point your camera - we'll do the rest"}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -769,7 +1007,6 @@ export default function FarmLinkPage() {
             </LinearGradient>
           </Animated.View>
 
-          {/* Paywall Modal */}
           <Modal visible={showPaywall} transparent animationType="slide">
             <View style={styles.paywallOverlay}>
               <View style={styles.paywallContainer}>
@@ -799,27 +1036,31 @@ export default function FarmLinkPage() {
                 </ScrollView>
                 <Text style={styles.gatewayTitle}>Pay with</Text>
                 <View style={styles.gatewayRow}>
-                  {GATEWAYS.map((gw) => (
+                  {GATEWAYS.map((gateway) => (
                     <TouchableOpacity
-                      key={gw.id}
+                      key={gateway.id}
                       style={[
                         styles.gatewayButton,
-                        selectedGateway === gw.id && styles.gatewayButtonActive,
+                        selectedGateway === gateway.id &&
+                          styles.gatewayButtonActive,
                       ]}
-                      onPress={() => setSelectedGateway(gw.id)}
+                      onPress={() => setSelectedGateway(gateway.id)}
                     >
                       <Ionicons
-                        name={gw.icon as any}
+                        name={gateway.icon as any}
                         size={22}
-                        color={selectedGateway === gw.id ? "#fff" : "#16a34a"}
+                        color={
+                          selectedGateway === gateway.id ? "#fff" : "#16a34a"
+                        }
                       />
                       <Text
                         style={[
                           styles.gatewayText,
-                          selectedGateway === gw.id && styles.gatewayTextActive,
+                          selectedGateway === gateway.id &&
+                            styles.gatewayTextActive,
                         ]}
                       >
-                        {gw.name}
+                        {gateway.name}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -872,10 +1113,10 @@ export default function FarmLinkPage() {
               />
             ) : scanHistory.length > 0 ? (
               <View style={styles.historyList}>
-                {scanHistory.map((scan, idx) => (
+                {scanHistory.map((scan, index) => (
                   <Animated.View
                     key={scan.id}
-                    entering={FadeIn.delay(idx * 50)}
+                    entering={FadeIn.delay(index * 50)}
                     style={styles.historyCard}
                   >
                     <View style={styles.cardImageContainer}>
@@ -918,7 +1159,7 @@ export default function FarmLinkPage() {
                 <View style={styles.emptyStateContainer}>
                   <Ionicons name="leaf-outline" size={48} color="#22c55e" />
                   <Text style={styles.emptyStateTitle}>
-                    No scans yet – be the first on your farm 🌱
+                    No scans yet - be the first on your farm 🌱
                   </Text>
                 </View>
                 <View style={styles.communityHeader}>
@@ -934,10 +1175,10 @@ export default function FarmLinkPage() {
                   />
                 ) : (
                   <View style={styles.historyList}>
-                    {communityScans.map((scan, idx) => (
+                    {communityScans.map((scan, index) => (
                       <Animated.View
                         key={scan.id}
-                        entering={FadeIn.delay(idx * 50)}
+                        entering={FadeIn.delay(index * 50)}
                         style={styles.communityCard}
                       >
                         <View style={styles.communityCardLeft}>
@@ -986,7 +1227,6 @@ export default function FarmLinkPage() {
           </Animated.View>
         </ScrollView>
 
-        {/* Camera scanner */}
         <Modal
           visible={scanVisible}
           animationType="slide"
@@ -1019,7 +1259,7 @@ export default function FarmLinkPage() {
                       <Animated.View style={[styles.scanRing, ringStyle]} />
                       <Ionicons name="leaf-outline" size={48} color="#22c55e" />
                       <Text style={styles.overlayTitle}>
-                        Searching for plant…
+                        Searching for plant...
                       </Text>
                       <Text style={styles.overlaySubtitle}>
                         Hold your phone steady
@@ -1044,7 +1284,7 @@ export default function FarmLinkPage() {
                         size={48}
                         color="#22c55e"
                       />
-                      <Text style={styles.overlayTitle}>Hold steady…</Text>
+                      <Text style={styles.overlayTitle}>Hold steady...</Text>
                       <Text style={styles.overlaySubtitle}>
                         Capturing in a moment
                       </Text>
@@ -1061,7 +1301,7 @@ export default function FarmLinkPage() {
                         style={{ marginBottom: 16 }}
                       />
                       <Text style={styles.overlayTitle}>
-                        Analyzing leaf health…
+                        Analyzing leaf health...
                       </Text>
                       <Text style={styles.overlaySubtitle}>
                         Kindwise AI is identifying & diagnosing
@@ -1146,7 +1386,7 @@ export default function FarmLinkPage() {
 
                   <View style={styles.resultSection}>
                     <Text style={styles.resultSectionTitle}>
-                      🔍 What’s happening
+                      {"🔍 What's happening"}
                     </Text>
                     <Text style={styles.resultText}>
                       {analysisResult.cause}
@@ -1210,7 +1450,6 @@ export default function FarmLinkPage() {
   );
 }
 
-// -------------------- Styles --------------------
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#fff" },
   container: { flex: 1, position: "relative" },
@@ -1437,7 +1676,11 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   cameraOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1563,7 +1806,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   newScanButtonText: { color: "white", fontWeight: "700", fontSize: 16 },
-  // Paywall styles
   paywallOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",

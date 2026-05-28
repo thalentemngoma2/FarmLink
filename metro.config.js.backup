@@ -1,0 +1,20 @@
+const { getDefaultConfig } = require("expo/metro-config");
+
+const config = getDefaultConfig(__dirname);
+
+// Block server files
+config.resolver.blockList = [/server\/.*/];
+
+// Add .cjs and .css to sourceExts for compatibility
+config.resolver.sourceExts = [
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "json",
+  "mjs",
+  "cjs",
+  "css",
+];
+
+module.exports = config;

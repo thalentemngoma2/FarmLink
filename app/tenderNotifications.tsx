@@ -1,4 +1,5 @@
 import { BottomNav } from "@/components/bottom-nav";
+import OutbreakHeatMap from "@/components/OutbreakHeatMap";
 import { GlassCard } from "@/components/ui/glass-card";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -7,32 +8,32 @@ import * as FileSystem from "expo-file-system/legacy"; // ← use legacy to keep
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
-import { Link, useRouter } from "expo-router";
+import { Link } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Image,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Animated, {
-  FadeIn,
-  Layout,
-  SlideInLeft,
-  SlideOutRight,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
+    FadeIn,
+    Layout,
+    SlideInLeft,
+    SlideOutRight,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -251,7 +252,7 @@ function OutbreakReport({
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images", "videos"],
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: false,
       quality: 0.8,
       videoMaxDuration: 30,
@@ -267,7 +268,7 @@ function OutbreakReport({
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images", "videos"],
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: false,
       quality: 0.8,
       videoMaxDuration: 30,
@@ -318,7 +319,7 @@ function OutbreakReport({
         }
       }
 
-      if (!mediaDate) return true; // can't determine date → allow
+      if (!mediaDate) return true;
 
       const now = new Date();
       const diff = now.getTime() - mediaDate.getTime();
@@ -335,11 +336,16 @@ function OutbreakReport({
   ): Promise<string> => {
     try {
       const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64, // ← no longer undefined
+        encoding: FileSystem.EncodingType.Base64,
       });
 
-      const byteNumbers = Array.from(base64, (ch: string) => ch.charCodeAt(0));
-      const blob = new Blob([byteNumbers], {
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], {
         type: type === "image" ? "image/jpeg" : "video/mp4",
       });
 
@@ -357,10 +363,10 @@ function OutbreakReport({
 
       if (error) throw new Error(`Storage upload failed: ${error.message}`);
 
-      const { data: publicUrl } = supabase.storage
+      const { data: publicUrlData } = supabase.storage
         .from("farmlink")
         .getPublicUrl(fileName);
-      return publicUrl.publicUrl;
+      return publicUrlData.publicUrl;
     } catch (err: any) {
       console.error("Upload error:", err);
       throw err;
@@ -438,7 +444,7 @@ function OutbreakReport({
           evidence_urls: evidenceUrls,
           evidence_count: evidenceUrls.length,
           device_signature: deviceSig,
-          affected_count: parseInt(affectedCount, 10) || 0, // ← store count
+          affected_count: parseInt(affectedCount, 10) || 0,
         })
         .select("id")
         .single();
@@ -751,7 +757,6 @@ const reportStyles = StyleSheet.create({
     backgroundColor: "#fff",
     color: "#111827",
   },
-  // Card styles – used for evidence, location, rate limit
   card: {
     backgroundColor: "#ffffff",
     borderRadius: 16,
@@ -842,8 +847,7 @@ const reportStyles = StyleSheet.create({
 // Main Notifications Page
 // ---------------------------------------------------------------------------
 export default function NotificationsPage() {
-    const { user } = useAuth();
-
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [loading, setLoading] = useState(true);
@@ -878,8 +882,8 @@ export default function NotificationsPage() {
         };
       });
       setNotifications(formatted);
-    } catch {
-      console.error("Failed to load notifications");
+    } catch (err) {
+      console.error("Failed to load notifications", err);
       setError("Failed to load notifications");
     } finally {
       setLoading(false);
@@ -904,7 +908,7 @@ export default function NotificationsPage() {
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
       );
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
     }
   };
@@ -918,7 +922,7 @@ export default function NotificationsPage() {
         .eq("user_id", user.id)
         .eq("read", false);
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
     }
   };
@@ -932,7 +936,7 @@ export default function NotificationsPage() {
         .eq("id", id)
         .eq("user_id", user.id);
       setNotifications((prev) => prev.filter((n) => n.id !== id));
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
     }
   };
@@ -949,7 +953,7 @@ export default function NotificationsPage() {
   const bgX2 = useSharedValue(0);
   const bgY2 = useSharedValue(0);
 
-  React.useEffect(() => {
+  useEffect(() => {
     bgScale1.value = withRepeat(withTiming(1.3, { duration: 20000 }), -1, true);
     bgX1.value = withRepeat(withTiming(30, { duration: 20000 }), -1, true);
     bgY1.value = withRepeat(withTiming(-20, { duration: 20000 }), -1, true);

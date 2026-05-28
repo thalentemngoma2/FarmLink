@@ -1,16 +1,19 @@
 import { supabase } from "@/lib/supabase";
-import * as Linking from "expo-linking";
-import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { Platform } from "react-native";
 
 export interface User {
   id: string;
   email: string;
   name?: string;
-  avatar?: string;
+  avatar?: string | null;
   location?: string;
   createdAt?: string;
   role?: string;
@@ -20,9 +23,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isUnlocking: boolean;
-
   login: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: () => Promise<void>;
   signup: (
     email: string,
     password: string,
@@ -30,25 +31,23 @@ interface AuthContextType {
     role?: string,
     location?: string,
   ) => Promise<void>;
-
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
   verifyOTP: (email: string, token: string) => Promise<void>;
   resendVerification: (email: string) => Promise<void>;
+  updateUserAvatar: (avatarUrl: string | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-WebBrowser.maybeCompleteAuthSession();
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isUnlocking, setIsUnlocking] = useState(false);
 
+  // Function to fetch user and role from public.users table
   const fetchUserWithRole = async (session: any) => {
     if (!session?.user) {
       setUser(null);
@@ -58,7 +57,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const { data: userData, error } = await supabase
         .from("users")
-        .select("role")
+        .select("role, avatar")
         .eq("user_id", session.user.id)
         .maybeSingle();
 
@@ -69,24 +68,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         email: session.user.email!,
         name:
           session.user.user_metadata?.name || session.user.email?.split("@")[0],
-        avatar: session.user.user_metadata?.avatar,
+        avatar: session.user.user_metadata?.avatar || userData?.avatar || null,
         role: userData?.role,
       });
     } catch (e: any) {
-      if (e?.name === "AbortError" || e?.message?.includes("AbortError"))
-        return;
+      if (e.name === "AbortError" || e.message?.includes("AbortError")) return;
       console.error("Failed to fetch user role", e);
       setUser({
         id: session.user.id,
         email: session.user.email!,
         name:
           session.user.user_metadata?.name || session.user.email?.split("@")[0],
-        avatar: session.user.user_metadata?.avatar,
+        avatar: session.user.user_metadata?.avatar || null,
         role: undefined,
       });
     }
   };
 
+  // Listen to auth state changes from Supabase
   useEffect(() => {
     let isMounted = true;
 
@@ -97,65 +96,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           error,
         } = await supabase.auth.getSession();
         if (error) throw error;
-
-        // App Lock: Require biometrics to resume an existing session
-        if (session && Platform.OS !== "web") {
-          setIsUnlocking(true);
-          try {
-            const result = await LocalAuthentication.authenticateAsync({
-              promptMessage: "Unlock FarmLink with Biometrics",
-              disableDeviceFallback: false,
-            });
-
-            if (!result.success) {
-              await supabase.auth.signOut();
-              if (isMounted) setUser(null);
-              return;
-            }
-          } catch {
-            await supabase.auth.signOut();
-            if (isMounted) setUser(null);
-            return;
-          } finally {
-            if (isMounted) setIsUnlocking(false);
-          }
-        }
-
         if (isMounted) await fetchUserWithRole(session);
       } catch (e: any) {
-        if (e?.name === "AbortError" || e?.message?.includes("AbortError"))
+        if (e.name === "AbortError" || e.message?.includes("AbortError"))
           return;
         console.error("Failed to get Supabase session", e);
         if (isMounted) setUser(null);
       } finally {
-        if (isMounted) setIsLoading(false); // Warm up DB API silently
-        try {
-          const { error: warmUpError } = await supabase
-            .from("users")
-            .select("user_id")
-            .limit(1);
-          if (warmUpError) console.warn("Database warm-up failed", warmUpError);
-        } catch {
-          // ignore
-        }
+        if (isMounted) setIsLoading(false);
+
+        // Fire a lightweight, silent query to wake up the database API
+        void (async () => {
+          try {
+            await supabase.from("users").select("user_id").limit(1);
+            console.log("Database warm-up complete");
+          } catch {
+            // Warm-up is best effort only.
+          }
+        })();
       }
     };
 
     init();
 
+    // Listen for changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!isMounted) return;
-      try {
-        await fetchUserWithRole(session);
-      } catch (e) {
-        console.error("Auth state change handling failed", e);
-      } finally {
-        setIsLoading(false);
+      if (isMounted) {
+        try {
+          await fetchUserWithRole(session);
+        } catch (e) {
+          console.error("Auth state change handling failed", e);
+        } finally {
+          setIsLoading(false);
+        }
       }
     });
 
+    // Global keyboard listener for force logout (Ctrl + Shift + O)
     const handleKeyDown = async (e: any) => {
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "o") {
         e.preventDefault();
@@ -185,6 +164,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, []);
 
+  // ---------- updateUserAvatar ----------
+  const updateUserAvatar = useCallback((avatarUrl: string | null) => {
+    setUser((prev) => (prev ? { ...prev, avatar: avatarUrl } : prev));
+  }, []);
+
+  // ---------- Authentication methods ----------
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
@@ -203,74 +188,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const loginWithGoogle = async () => {
-    setIsLoading(true);
-    try {
-      const redirectTo = Linking.createURL("/");
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo,
-          skipBrowserRedirect: Platform.OS !== "web",
-        },
-      });
-
-      if (error) throw error;
-
-      if (Platform.OS !== "web" && data?.url) {
-        const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-
-        if (res.type === "success") {
-          const { url } = res;
-          const extractParam = (u: string, param: string) => {
-            const regex = new RegExp(`[#?&]${param}=([^&]+)`);
-            const match = u.match(regex);
-            return match ? decodeURIComponent(match[1]) : null;
-          };
-
-          const access_token = extractParam(url, "access_token");
-          const refresh_token = extractParam(url, "refresh_token");
-
-          if (access_token && refresh_token) {
-            const { data: sessionData, error: sessionError } =
-              await supabase.auth.setSession({
-                access_token,
-                refresh_token,
-              });
-            if (sessionError) throw sessionError;
-
-            if (sessionData.session) {
-              const { user: supaUser } = sessionData.session;
-              const { data: existing } = await supabase
-                .from("users")
-                .select("user_id")
-                .eq("user_id", supaUser.id)
-                .maybeSingle();
-
-              if (!existing) {
-                await supabase.from("users").insert({
-                  user_id: supaUser.id,
-                  username:
-                    supaUser.user_metadata?.full_name ||
-                    supaUser.email?.split("@")[0] ||
-                    "User",
-                  email: supaUser.email,
-                  role: "farmer",
-                });
-              }
-              await fetchUserWithRole(sessionData.session);
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      throw new Error(err.message || "Google login failed");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const signup = async (
     email: string,
     password: string,
@@ -280,7 +197,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   ) => {
     setIsLoading(true);
     try {
-      // Validate/normalize role if provided
       const validRoles = ["farmer", "retailer", "admin", "extension_officer"];
       const normalizedRole = (role || "farmer").trim().toLowerCase();
       if (!validRoles.includes(normalizedRole)) {
@@ -289,54 +205,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         );
       }
 
-      // Generate unique username
       const timestamp = Date.now();
       const randomPart = Math.random().toString(36).substring(2, 10);
       const username = `${email.split("@")[0]}_${timestamp}_${randomPart}`
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, "_");
 
-      // 1) Create user in Supabase Auth
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            name,
-            full_name: name,
+            name: name || username,
             username,
             role: normalizedRole,
             location: location || "",
-            avatar: "",
           },
+          emailRedirectTo: undefined,
         },
       });
-
-      if (error) {
-        // Catch Supabase SMTP rate limit errors
-        if (
-          error.message?.includes("Error sending confirmation") ||
-          error.status === 500
-        ) {
-          throw new Error(
-            "Email sending limit reached (max 3 per hour). Please wait an hour, or temporarily disable 'Confirm Email' in Supabase to continue testing.",
-          );
-        }
-        // Catch Database Trigger errors
-        if (error.message?.includes("Database error")) {
-          throw new Error(
-            "Database trigger failed. Please check your Supabase Auth logs.",
-          );
-        }
-        throw error;
-      }
+      if (error) throw error;
       if (!data.user) throw new Error("Signup failed");
-
-      if (data.session) {
-        console.warn(
-          "WARNING: Supabase 'Confirm Email' is disabled. User was automatically logged in, bypassing OTP.",
-        );
-      }
     } catch (err: any) {
       throw new Error(err.message || "Signup failed");
     } finally {
@@ -350,11 +239,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const { data, error } = await supabase.auth.verifyOtp({
         email,
         token,
-        type: "signup",
+        type: "email",
       });
-
       if (error) throw error;
-
       if (data.session) {
         await fetchUserWithRole(data.session);
       }
@@ -379,7 +266,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const { error: dbError } = await supabase
         .from("password_resets")
         .insert({ email, reset_token: resetToken, expires_at: expiresAt });
-
       if (dbError) throw dbError;
 
       const { error: invokeError } = await supabase.functions.invoke(
@@ -388,7 +274,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           body: { email, token: resetToken },
         },
       );
-
       if (invokeError) throw new Error("Failed to send reset email");
     } catch (err: any) {
       throw new Error(err.message || "Password reset failed");
@@ -405,7 +290,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         refresh_token: "",
       });
       if (sessionError) throw sessionError;
-
       const { error } = await supabase.auth.updateUser({
         password: newPassword,
       });
@@ -422,8 +306,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      setUser(null);
-      router.replace("/login");
     } catch (err: any) {
       console.error("Logout error", err);
     } finally {
@@ -449,15 +331,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const value: AuthContextType = {
     user,
     isLoading,
-    isUnlocking,
+    isUnlocking: false,
     login,
-    loginWithGoogle,
     signup,
     logout,
     forgotPassword,
     resetPassword,
     verifyOTP,
     resendVerification,
+    updateUserAvatar,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

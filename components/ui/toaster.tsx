@@ -1,8 +1,29 @@
 // toast.tsx
-import { Ionicons } from '@expo/vector-icons';
-import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { Dimensions, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+declare const global: { __toastContext?: any };
+
+import { Ionicons } from "@expo/vector-icons";
+import React, {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import {
+  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 
 // Extend global object type
 declare global {
@@ -12,7 +33,7 @@ declare global {
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
-export type ToastVariant = 'default' | 'destructive' | 'success' | 'info';
+export type ToastVariant = "default" | "destructive" | "success" | "info";
 
 interface ToastOptions {
   id?: string;
@@ -42,7 +63,7 @@ const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 
 export const useToast = () => {
   const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error('useToast must be used within a ToastProvider');
+  if (!ctx) throw new Error("useToast must be used within a ToastProvider");
   return ctx;
 };
 
@@ -51,42 +72,43 @@ export const useToast = () => {
 // -----------------------------------------------------------------------------
 interface ToastProviderProps {
   children: ReactNode;
-  position?: 'top' | 'bottom';
+  position?: "top" | "bottom";
   offset?: number; // offset from screen edge (default 16)
   maxToasts?: number; // maximum toasts visible at once
 }
 
 export const ToastProvider: React.FC<ToastProviderProps> = ({
   children,
-  position = 'top',
+  position = "top",
   offset = 16,
   maxToasts = 3,
 }) => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const addToast = useCallback((options: ToastOptions) => {
-    const id = options.id || Math.random().toString(36).substring(2, 9);
-    const newToast: ToastItem = {
-      ...options,
-      id,
-      createdAt: Date.now(),
-      variant: options.variant || 'default',
-      duration: options.duration ?? 4000,
-    };
-    setToasts(prev => [...prev, newToast].slice(-maxToasts));
-    return id;
-  }, [maxToasts]);
+  const addToast = useCallback(
+    (options: ToastOptions) => {
+      const id = options.id || Math.random().toString(36).substring(2, 9);
+      const newToast: ToastItem = {
+        ...options,
+        id,
+        createdAt: Date.now(),
+        variant: options.variant || "default",
+        duration: options.duration ?? 4000,
+      };
+      setToasts((prev) => [...prev, newToast].slice(-maxToasts));
+      return id;
+    },
+    [maxToasts],
+  );
 
   const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const value = { addToast, removeToast, toasts };
 
   return (
-    <ToastContext.Provider value={value}>
-      {children}
-    </ToastContext.Provider>
+    <ToastContext.Provider value={value}>{children}</ToastContext.Provider>
   );
 };
 
@@ -97,11 +119,17 @@ interface ToastProps {
   toast: ToastItem;
   onRemove: () => void;
   index: number;
-  position: 'top' | 'bottom';
+  position: "top" | "bottom";
   offset: number;
 }
 
-const ToastComponent: React.FC<ToastProps> = ({ toast, onRemove, index, position, offset }) => {
+const ToastComponent: React.FC<ToastProps> = ({
+  toast,
+  onRemove,
+  index,
+  position,
+  offset,
+}) => {
   const translateY = useSharedValue(0);
   const opacity = useSharedValue(1);
 
@@ -115,7 +143,7 @@ const ToastComponent: React.FC<ToastProps> = ({ toast, onRemove, index, position
 
   // Entrance animation: slide in from top/bottom
   useEffect(() => {
-    const startPos = position === 'top' ? -100 : 100;
+    const startPos = position === "top" ? -100 : 100;
     translateY.value = withSpring(0, { damping: 15 });
   }, []);
 
@@ -131,27 +159,27 @@ const ToastComponent: React.FC<ToastProps> = ({ toast, onRemove, index, position
   };
 
   // Determine variant colors
-  let bgColor = '#fff';
-  let textColor = '#11181C';
+  let bgColor = "#fff";
+  let textColor = "#11181C";
   let iconName = null;
-  if (toast.variant === 'destructive') {
-    bgColor = '#fee2e2';
-    textColor = '#b91c1c';
-    iconName = 'alert-circle';
-  } else if (toast.variant === 'success') {
-    bgColor = '#dcfce7';
-    textColor = '#15803d';
-    iconName = 'checkmark-circle';
-  } else if (toast.variant === 'info') {
-    bgColor = '#dbeafe';
-    textColor = '#1e40af';
-    iconName = 'information-circle';
+  if (toast.variant === "destructive") {
+    bgColor = "#fee2e2";
+    textColor = "#b91c1c";
+    iconName = "alert-circle";
+  } else if (toast.variant === "success") {
+    bgColor = "#dcfce7";
+    textColor = "#15803d";
+    iconName = "checkmark-circle";
+  } else if (toast.variant === "info") {
+    bgColor = "#dbeafe";
+    textColor = "#1e40af";
+    iconName = "information-circle";
   }
 
   // Positioning: stack from the edge, with index offset
-  const { width } = Dimensions.get('window');
-  const topOffset = position === 'top' ? offset + index * 70 : undefined;
-  const bottomOffset = position === 'bottom' ? offset + index * 70 : undefined;
+  const { width } = Dimensions.get("window");
+  const topOffset = position === "top" ? offset + index * 70 : undefined;
+  const bottomOffset = position === "bottom" ? offset + index * 70 : undefined;
 
   return (
     <Animated.View
@@ -162,20 +190,40 @@ const ToastComponent: React.FC<ToastProps> = ({ toast, onRemove, index, position
           width: width - offset * 2,
           top: topOffset,
           bottom: bottomOffset,
-          position: 'absolute',
+          position: "absolute",
           left: offset,
           right: offset,
         },
         animatedStyle,
       ]}
     >
-      {iconName && <Ionicons name={iconName as any} size={20} color={textColor} style={styles.icon} />}
+      {iconName && (
+        <Ionicons
+          name={iconName as any}
+          size={20}
+          color={textColor}
+          style={styles.icon}
+        />
+      )}
       <View style={styles.content}>
-        {toast.title && <Text style={[styles.title, { color: textColor }]}>{toast.title}</Text>}
-        {toast.description && <Text style={[styles.description, { color: textColor + 'cc' }]}>{toast.description}</Text>}
+        {toast.title && (
+          <Text style={[styles.title, { color: textColor }]}>
+            {toast.title}
+          </Text>
+        )}
+        {toast.description && (
+          <Text style={[styles.description, { color: textColor + "cc" }]}>
+            {toast.description}
+          </Text>
+        )}
         {toast.action && (
-          <TouchableOpacity onPress={toast.action.onPress} style={styles.actionButton}>
-            <Text style={[styles.actionText, { color: textColor }]}>{toast.action.label}</Text>
+          <TouchableOpacity
+            onPress={toast.action.onPress}
+            style={styles.actionButton}
+          >
+            <Text style={[styles.actionText, { color: textColor }]}>
+              {toast.action.label}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -190,27 +238,30 @@ const ToastComponent: React.FC<ToastProps> = ({ toast, onRemove, index, position
 // Toaster – renders all active toasts
 // -----------------------------------------------------------------------------
 interface ToasterProps {
-  position?: 'top' | 'bottom';
+  position?: "top" | "bottom";
   offset?: number;
 }
 
-export const Toaster: React.FC<ToasterProps> = ({ position = 'top', offset = 16 }) => {
+export const Toaster: React.FC<ToasterProps> = ({
+  position = "top",
+  offset = 16,
+}) => {
   const { toasts, removeToast } = useToast();
 
-   return (
-     <View style={[StyleSheet.absoluteFill, { pointerEvents: 'box-none' as any }]}>
-       {toasts.map((toast, idx) => (
-         <ToastComponent
-           key={toast.id}
-           toast={toast}
-           onRemove={() => removeToast(toast.id)}
-           index={idx}
-           position={position}
-           offset={offset}
-         />
-       ))}
-     </View>
-   );
+  return (
+    <View style={[StyleSheet.absoluteFill, { pointerEvents: "box-none" }]}>
+      {toasts.map((toast, idx) => (
+        <ToastComponent
+          key={toast.id}
+          toast={toast}
+          onRemove={() => removeToast(toast.id)}
+          index={idx}
+          position={position}
+          offset={offset}
+        />
+      ))}
+    </View>
+  );
 };
 
 // -----------------------------------------------------------------------------
@@ -223,17 +274,34 @@ export const toast = {
     if (global.__toastContext) {
       return global.__toastContext.addToast(options);
     }
-    console.warn('Toast not initialized. Ensure Toaster is mounted.');
-    return '';
+    console.warn("Toast not initialized. Ensure Toaster is mounted.");
+    return "";
   },
-  success: (title: string, description?: string, options?: Omit<ToastOptions, 'title' | 'description'>) => {
-    return toast.show({ ...options, title, description, variant: 'success' });
+  success: (
+    title: string,
+    description?: string,
+    options?: Omit<ToastOptions, "title" | "description">,
+  ) => {
+    return toast.show({ ...options, title, description, variant: "success" });
   },
-  error: (title: string, description?: string, options?: Omit<ToastOptions, 'title' | 'description'>) => {
-    return toast.show({ ...options, title, description, variant: 'destructive' });
+  error: (
+    title: string,
+    description?: string,
+    options?: Omit<ToastOptions, "title" | "description">,
+  ) => {
+    return toast.show({
+      ...options,
+      title,
+      description,
+      variant: "destructive",
+    });
   },
-  info: (title: string, description?: string, options?: Omit<ToastOptions, 'title' | 'description'>) => {
-    return toast.show({ ...options, title, description, variant: 'info' });
+  info: (
+    title: string,
+    description?: string,
+    options?: Omit<ToastOptions, "title" | "description">,
+  ) => {
+    return toast.show({ ...options, title, description, variant: "info" });
   },
   dismiss: (id: string) => {
     if (global.__toastContext) {
@@ -252,25 +320,15 @@ export const setToastContext = (ctx: ToastContextValue) => {
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   toast: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 16,
     marginVertical: 4,
-    ...Platform.select({
-      web: {
-        boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
-      },
-      default: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 3,
-      },
-    }),
+    boxShadow: "0px 2px 8px rgba(0,0,0,0.1)",
+    elevation: 3,
   },
   icon: {
     marginRight: 12,
@@ -280,22 +338,22 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#11181C',
+    fontWeight: "600",
+    color: "#11181C",
     marginBottom: 2,
   },
   description: {
     fontSize: 12,
-    color: '#687076',
+    color: "#687076",
   },
   actionButton: {
     marginTop: 8,
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
   },
   actionText: {
     fontSize: 12,
-    fontWeight: '500',
-    textDecorationLine: 'underline',
+    fontWeight: "500",
+    textDecorationLine: "underline",
   },
   closeButton: {
     padding: 4,

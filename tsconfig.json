@@ -1,15 +1,22 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "lib": ["dom", "esnext"],
     "jsx": "react-jsx",
     "allowJs": true,
     "strict": true,
-
     "baseUrl": ".",
     "paths": {
       "@/*": ["*"]
     },
-
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
     "ignoreDeprecations": "6.0"
   },
   "include": [
@@ -17,6 +24,13 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
-    "types/**/*"
+    "types/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "babel.config.js",
+    "metro.config.js",
+    "jest.config.js",
+    "supabase/functions/**"
   ]
 }

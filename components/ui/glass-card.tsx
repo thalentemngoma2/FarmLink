@@ -1,17 +1,17 @@
 import React, { forwardRef } from 'react';
 import {
-  Platform,
-  StyleProp,
-  StyleSheet,
-  TouchableOpacity,
-  TouchableOpacityProps,
-  View,
-  ViewStyle,
+    Platform,
+    StyleProp,
+    StyleSheet,
+    TouchableOpacity,
+    TouchableOpacityProps,
+    View,
+    ViewStyle,
 } from 'react-native';
 import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
 } from 'react-native-reanimated';
 
 // Optional gradient – if not installed, fallback to a simple overlay
@@ -41,7 +41,7 @@ interface GlassCardProps extends TouchableOpacityProps {
   /** Shadow/elevation level (0-10) */
   elevation?: number;
   /** Background color behind the glass effect (for fallback) */
-  backgroundColor?: FileCallback;
+  backgroundColor?: string;
 }
 
 /**

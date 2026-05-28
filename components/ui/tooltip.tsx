@@ -270,7 +270,7 @@ export const TooltipContent: React.FC<TooltipContentProps> = ({
   return (
     <Modal transparent visible={open} animationType="none" onRequestClose={handleClose}>
       <TouchableWithoutFeedback onPress={handleClose}>
-        <View style={StyleSheet.absoluteFillObject} />
+        <View style={StyleSheet.absoluteFill} />
       </TouchableWithoutFeedback>
       <Animated.View
         style={[

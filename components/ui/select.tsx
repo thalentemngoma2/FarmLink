@@ -1,5 +1,12 @@
-import { Ionicons } from '@expo/vector-icons';
-import React, { createContext, ReactNode, useContext, useEffect, useRef, useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import React, {
+  createContext,
+  ReactNode,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Dimensions,
   FlatList,
@@ -11,13 +18,13 @@ import {
   TouchableWithoutFeedback,
   View,
   ViewStyle,
-} from 'react-native';
+} from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming
-} from 'react-native-reanimated';
+  withTiming,
+} from "react-native-reanimated";
 
 // -----------------------------------------------------------------------------
 // Types & Context
@@ -35,7 +42,8 @@ const SelectContext = createContext<SelectContextValue | undefined>(undefined);
 
 const useSelect = () => {
   const ctx = useContext(SelectContext);
-  if (!ctx) throw new Error('Select components must be used within a <Select />');
+  if (!ctx)
+    throw new Error("Select components must be used within a <Select />");
   return ctx;
 };
 
@@ -104,14 +112,14 @@ export const Select: React.FC<SelectProps> = ({
 // -----------------------------------------------------------------------------
 interface SelectTriggerProps {
   children?: ReactNode;
-  size?: 'sm' | 'default';
+  size?: "sm" | "default";
   style?: ViewStyle;
   textStyle?: TextStyle;
 }
 
 export const SelectTrigger: React.FC<SelectTriggerProps> = ({
   children,
-  size = 'default',
+  size = "default",
   style,
   textStyle,
 }) => {
@@ -125,8 +133,9 @@ export const SelectTrigger: React.FC<SelectTriggerProps> = ({
     });
   };
 
-  const heightStyle = size === 'sm' ? { height: 32 } : { height: 36 };
-  const paddingStyle = size === 'sm' ? { paddingHorizontal: 8 } : { paddingHorizontal: 12 };
+  const heightStyle = size === "sm" ? { height: 32 } : { height: 36 };
+  const paddingStyle =
+    size === "sm" ? { paddingHorizontal: 8 } : { paddingHorizontal: 12 };
 
   return (
     <TouchableOpacity
@@ -136,7 +145,12 @@ export const SelectTrigger: React.FC<SelectTriggerProps> = ({
       activeOpacity={0.7}
     >
       {children}
-      <Ionicons name="chevron-down" size={16} color="#666" style={styles.chevron} />
+      <Ionicons
+        name="chevron-down"
+        size={16}
+        color="#666"
+        style={styles.chevron}
+      />
     </TouchableOpacity>
   );
 };
@@ -149,16 +163,15 @@ interface SelectValueProps {
   style?: TextStyle;
 }
 
-export const SelectValue: React.FC<SelectValueProps> = ({ placeholder = 'Select...', style }) => {
+export const SelectValue: React.FC<SelectValueProps> = ({
+  placeholder = "Select...",
+  style,
+}) => {
   const { value } = useSelect();
   // We need access to options to map value to label. The options are children of SelectContent.
   // Since we can't easily get that here, we'll leave the value as raw string.
   // A better approach would be to use a context that stores the selected label, but for now we just show the value.
-  return (
-    <Text style={[styles.valueText, style]}>
-      {value || placeholder}
-    </Text>
-  );
+  return <Text style={[styles.valueText, style]}>{value || placeholder}</Text>;
 };
 
 // -----------------------------------------------------------------------------
@@ -166,16 +179,20 @@ export const SelectValue: React.FC<SelectValueProps> = ({ placeholder = 'Select.
 // -----------------------------------------------------------------------------
 interface SelectContentProps {
   children: ReactNode;
-  position?: 'popper' | 'item-aligned';
+  position?: "popper" | "item-aligned";
   style?: ViewStyle;
 }
 
-export const SelectContent: React.FC<SelectContentProps> = ({ children, position = 'popper', style }) => {
+export const SelectContent: React.FC<SelectContentProps> = ({
+  children,
+  position = "popper",
+  style,
+}) => {
   const { open, setOpen, triggerPosition } = useSelect();
   const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
   const scaleAnim = useSharedValue(0.95);
   const opacityAnim = useSharedValue(0);
-  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
   useEffect(() => {
     if (open) {
@@ -202,12 +219,11 @@ export const SelectContent: React.FC<SelectContentProps> = ({ children, position
   let top = triggerPosition.y + 4;
   let maxHeight = screenHeight - top - 8;
 
-  if (position === 'popper') {
+  if (position === "popper") {
     // width should match trigger width
     const width = Math.max(triggerPosition.width, 200);
     left = triggerPosition.x;
     if (left + width > screenWidth) left = screenWidth - width - 8;
-    if (left < 8) left = 8;
     // below
     if (top + contentSize.height > screenHeight) {
       top = triggerPosition.y - contentSize.height - 4;
@@ -222,9 +238,14 @@ export const SelectContent: React.FC<SelectContentProps> = ({ children, position
   if (!open) return null;
 
   return (
-    <Modal transparent visible={open} animationType="none" onRequestClose={handleClose}>
+    <Modal
+      transparent
+      visible={open}
+      animationType="none"
+      onRequestClose={handleClose}
+    >
       <TouchableWithoutFeedback onPress={handleClose}>
-        <View style={StyleSheet.absoluteFillObject} />
+        <View style={StyleSheet.absoluteFill} />
       </TouchableWithoutFeedback>
       <Animated.View
         style={[
@@ -288,7 +309,12 @@ export const SelectItem: React.FC<SelectItemProps> = ({
     >
       <Text style={[styles.itemText, textStyle]}>{children}</Text>
       {isSelected && (
-        <Ionicons name="checkmark" size={16} color="#22c55e" style={styles.checkIcon} />
+        <Ionicons
+          name="checkmark"
+          size={16}
+          color="#22c55e"
+          style={styles.checkIcon}
+        />
       )}
     </TouchableOpacity>
   );
@@ -297,14 +323,20 @@ export const SelectItem: React.FC<SelectItemProps> = ({
 // -----------------------------------------------------------------------------
 // SelectGroup – container for group of items (optional)
 // -----------------------------------------------------------------------------
-export const SelectGroup: React.FC<{ children: ReactNode; style?: ViewStyle }> = ({ children, style }) => (
+export const SelectGroup: React.FC<{
+  children: ReactNode;
+  style?: ViewStyle;
+}> = ({ children, style }) => (
   <View style={[styles.group, style]}>{children}</View>
 );
 
 // -----------------------------------------------------------------------------
 // SelectLabel – header for a group
 // -----------------------------------------------------------------------------
-export const SelectLabel: React.FC<{ children: ReactNode; style?: TextStyle }> = ({ children, style }) => (
+export const SelectLabel: React.FC<{
+  children: ReactNode;
+  style?: TextStyle;
+}> = ({ children, style }) => (
   <Text style={[styles.label, style]}>{children}</Text>
 );
 
@@ -326,13 +358,13 @@ export const SelectScrollDownButton: React.FC = () => null;
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   trigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: "#e2e8f0",
     borderRadius: 8,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     minWidth: 120,
   },
   chevron: {
@@ -340,37 +372,37 @@ const styles = StyleSheet.create({
   },
   valueText: {
     fontSize: 14,
-    color: '#11181C',
+    color: "#11181C",
   },
   content: {
-    position: 'absolute',
-    backgroundColor: '#fff',
+    position: "absolute",
+    backgroundColor: "#fff",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    boxShadow: '0px 2px 8px rgba(0,0,0,0.1)',
+    borderColor: "#e5e7eb",
+    boxShadow: "0px 2px 8px rgba(0,0,0,0.1)",
     elevation: 5,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   list: {
     maxHeight: 250,
   },
   item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
   itemSelected: {
-    backgroundColor: '#f0fdf4',
+    backgroundColor: "#f0fdf4",
   },
   itemDisabled: {
     opacity: 0.5,
   },
   itemText: {
     fontSize: 14,
-    color: '#11181C',
+    color: "#11181C",
   },
   checkIcon: {
     marginLeft: 8,
@@ -380,17 +412,17 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#6b7280',
-    textTransform: 'uppercase',
+    fontWeight: "600",
+    color: "#6b7280",
+    textTransform: "uppercase",
     letterSpacing: 0.5,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: '#f9fafb',
+    backgroundColor: "#f9fafb",
   },
   separator: {
     height: 1,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: "#e5e7eb",
     marginVertical: 4,
   },
 });
